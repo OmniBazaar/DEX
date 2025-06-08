@@ -1,0 +1,36 @@
+{
+    "name": "omnibazaar-dex",
+    "version": "0.1.0",
+    "description": "Decentralized Exchange (DEX) for OmniBazaar, based on dYdX V4 with OmniCoin and COTI V2 privacy integration.",
+    "main": "src/index.ts",
+    "scripts": {
+        "build": "tsc",
+        "test": "hardhat test && jest",
+        "lint": "eslint . --ext .ts,.js,.tsx,.jsx",
+        "start": "hardhat node"
+    },
+    "keywords": [
+        "dex",
+        "dydx",
+        "omnicoin",
+        "coti",
+        "blockchain",
+        "exchange"
+    ],
+    "author": "OmniBazaar Team",
+    "license": "AGPL-3.0",
+    "dependencies": {
+        "@openzeppelin/contracts": "^4.9.0",
+        "@coti-io/coti-sdk": "^2.0.0",
+        "ethers": "^5.7.2"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "hardhat": "^2.17.0",
+        "jest": "^29.0.0",
+        "ts-jest": "^29.0.0",
+        "eslint": "^8.0.0",
+        "@types/jest": "^29.0.0",
+        "@types/node": "^18.0.0"
+    }
+}
