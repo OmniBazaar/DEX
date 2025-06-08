@@ -1,4 +1,4 @@
-# OmniDEX Development Plan
+# CryptoBazaar DEX Development Plan
 
 ## Phase 1: Initial Setup and Core Infrastructure (Weeks 1-4)
 
