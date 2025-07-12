@@ -24,9 +24,14 @@ import {
   Candle,
   ConversionResult
 } from '../../types/config';
-import { DEXConfig, ServiceHealth } from '../../types/validator';
-import { IPFSStorageNetwork } from '../storage/IPFSStorageNetwork';
+import { ServiceHealth } from '../../types/validator';
 import { logger } from '../../utils/logger';
+
+// Interface for IPFS Storage Network (temporary until proper integration)
+interface IPFSStorageNetwork {
+  storeOrder(order: any): Promise<string>;
+  updateOrder(order: any): Promise<void>;
+}
 
 interface OrderBookConfig {
   tradingPairs: string[];
@@ -52,13 +57,13 @@ export class DecentralizedOrderBook extends EventEmitter {
   private ordersByPair = new Map<string, Set<string>>();
   
   // Perpetual futures
-  private positions = new Map<string, Position>();
+  private _positions = new Map<string, Position>();
   private perpetualContracts = new Map<string, any>();
   
   // Market data
   private orderBooks = new Map<string, OrderBook>();
   private recentTrades = new Map<string, Trade[]>();
-  private priceData = new Map<string, any>();
+  private _priceData = new Map<string, any>();
   
   // Trading pairs
   private tradingPairs = new Map<string, TradingPair>();
@@ -128,8 +133,8 @@ export class DecentralizedOrderBook extends EventEmitter {
         side: orderData.side!,
         pair: orderData.pair!,
         quantity: orderData.quantity!,
-        price: orderData.price || undefined,
-        stopPrice: orderData.stopPrice || undefined,
+        ...(orderData.price && { price: orderData.price }),
+        ...(orderData.stopPrice && { stopPrice: orderData.stopPrice }),
         timeInForce: orderData.timeInForce || 'GTC',
         leverage: orderData.leverage || 1,
         reduceOnly: orderData.reduceOnly || false,
@@ -332,10 +337,10 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Auto-convert tokens to XOM
    */
   async autoConvertToXOM(
-    userId: string,
+    _userId: string,
     fromToken: string,
     amount: string,
-    slippageTolerance: number
+    _slippageTolerance: number
   ): Promise<ConversionResult> {
     try {
       // Calculate conversion rate
@@ -565,7 +570,7 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   // Placeholder implementations for complex calculations
-  private calculateMarginRequired(size: string, leverage: number, contract: string): string {
+  private calculateMarginRequired(size: string, leverage: number, _contract: string): string {
     return (parseFloat(size) / leverage).toString();
   }
 
@@ -605,7 +610,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     return input.unrealizedPnL;
   }
 
-  private calculatePerpetualFees(size: string, leverage: number): string {
+  private calculatePerpetualFees(size: string, _leverage: number): string {
     return (parseFloat(size) * this.config.feeStructure.perpetualTaker).toString();
   }
 
@@ -624,7 +629,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     return [];
   }
 
-  private calculatePortfolioValue(balances: Balance[], positions: Position[]): string {
+  private calculatePortfolioValue(balances: Balance[], _positions: Position[]): string {
     const balanceValue = balances.reduce((sum, b) => sum + parseFloat(b.usdValue || '0'), 0);
     return balanceValue.toString();
   }
