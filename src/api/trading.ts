@@ -11,9 +11,9 @@
 
 import { Router, Request, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
-import { DecentralizedOrderBook } from '@core/dex/DecentralizedOrderBook';
-import { FeeDistributionEngine } from '@core/economics/FeeDistributionEngine';
-import { logger } from '@utils/logger';
+import { DecentralizedOrderBook } from '../../../Validator/src/services/dex/DecentralizedOrderBook';
+import { FeeDistributionEngine } from '../../../Validator/src/core/FeeDistributionEngine';
+import { logger } from '../../../Validator/src/utils/Logger';
 
 export function createTradingRoutes(
   orderBook: DecentralizedOrderBook,
@@ -63,7 +63,7 @@ export function createTradingRoutes(
           timestamp: Date.now()
         };
 
-        const result = await orderBook.placeOrder(order);
+        const result = await orderBook.submitOrder(order);
         
         // Track fees for distribution
         if (result.filled) {
@@ -104,7 +104,7 @@ export function createTradingRoutes(
         const { orderId } = req.params;
         const userId = req.headers['x-user-id'] as string;
 
-        const order = await orderBook.getOrder(orderId, userId);
+        const order = await orderBook.getOrder(orderId);
         
         if (!order) {
           return res.status(404).json({
@@ -183,7 +183,7 @@ export function createTradingRoutes(
           offset: (req.query.offset as number) || 0
         };
 
-        const orders = await orderBook.getUserOrders(userId, filters);
+        const orders = await orderBook.getUserOrders(userId);
 
         res.json({
           orders,

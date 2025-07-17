@@ -17,23 +17,24 @@ import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
 
 // UNIFIED VALIDATOR CORE COMPONENTS
-import { UnifiedValidatorNode } from '@core/validator/UnifiedValidatorNode';
-import { DecentralizedOrderBook } from '@core/dex/DecentralizedOrderBook';
-import { OmniCoinBlockchain } from '@core/blockchain/OmniCoinBlockchain';
-import { IPFSStorageNetwork } from '@core/storage/IPFSStorageNetwork';
-import { P2PChatNetwork } from '@core/chat/P2PChatNetwork';
-import { FeeDistributionEngine } from '@core/economics/FeeDistributionEngine';
+import { ValidatorClient } from '../../Validator/src/client/ValidatorClient';
+import { UnifiedValidatorNode } from '../../Validator/src/UnifiedValidatorNode';
+import { DecentralizedOrderBook } from '../../Validator/src/services/dex/DecentralizedOrderBook';
+import { OmniCoinBlockchain } from '../../Validator/src/core/OmniCoinBlockchain';
+import { IPFSStorageNetwork } from '../../Validator/src/services/storage/IPFSStorageNetwork';
+import { P2PChatNetwork } from '../../Validator/src/services/chat/P2PChatNetwork';
+import { FeeDistributionEngine } from '../../Validator/src/core/FeeDistributionEngine';
 
 // API Routes
-import { createTradingRoutes } from '@api/trading';
-import { createMarketDataRoutes } from '@api/market-data';
-import { createChatRoutes } from '@api/chat';
-import { createStorageRoutes } from '@api/storage';
-import { createValidatorRoutes } from '@api/validator';
+import { createTradingRoutes } from './api/trading';
+import { createMarketDataRoutes } from './api/market-data';
+import { createChatRoutes } from './api/chat';
+import { createStorageRoutes } from './api/storage';
+import { createValidatorRoutes } from './api/validator';
 
 // Configuration and Types
-import { ValidatorConfig } from '@types/validator';
-import { logger } from '@utils/logger';
+import { ValidatorConfig } from '../../Validator/src/types/validator';
+import { logger } from '../../Validator/src/utils/Logger';
 
 // Load environment variables
 dotenv.config();

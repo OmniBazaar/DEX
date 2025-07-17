@@ -11,8 +11,8 @@
 
 import { Router, Request, Response } from 'express';
 import { param, query, validationResult } from 'express-validator';
-import { DecentralizedOrderBook } from '@core/dex/DecentralizedOrderBook';
-import { logger } from '@utils/logger';
+import { DecentralizedOrderBook } from '../../../Validator/src/services/dex/DecentralizedOrderBook';
+import { logger } from '../../../Validator/src/utils/Logger';
 
 export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Router {
   const router = Router();
@@ -63,14 +63,14 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
         const { pair } = req.params;
         const limit = (req.query.limit as number) || 100;
 
-        const orderBook = await orderBook.getOrderBook(pair, limit);
+        const orderBookData = await orderBook.getOrderBook(pair);
 
         res.json({
           pair,
-          bids: orderBook.bids.map(level => [level.price, level.quantity]),
-          asks: orderBook.asks.map(level => [level.price, level.quantity]),
-          timestamp: orderBook.timestamp,
-          sequence: orderBook.sequence
+          bids: orderBookData?.bids?.map(level => [level.price, level.quantity]) || [],
+          asks: orderBookData?.asks?.map(level => [level.price, level.quantity]) || [],
+          timestamp: orderBookData?.timestamp || Date.now(),
+          sequence: orderBookData?.sequence || 0
         });
 
       } catch (error) {
