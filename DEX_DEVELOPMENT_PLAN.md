@@ -2,9 +2,11 @@
 
 ## Executive Summary
 
-This document outlines the development strategy for the **OmniBazaar Unified Validator Network** with integrated **Decentralized Exchange (DEX)** functionality. Our innovative architecture combines **Proof of Participation validators** with **IPFS storage** and **early on-chain settlement** to create a truly decentralized trading platform with modest resource requirements.
+This document outlines the development strategy for the **OmniBazaar Unified Validator Network** with integrated **Decentralized Exchange (DEX)** functionality. Our innovative architecture combines **Proof of Participation validators** with **IPFS storage** and **Hybrid L2.5 settlement** to create a truly decentralized trading platform with modest resource requirements.
 
-**Core Innovation**: **Unified Validator Architecture** that processes blockchain transactions, DEX operations, IPFS storage, and chat communications on affordable hardware while maintaining true decentralization.
+**UPDATED (2025-07-23)**: Now integrates with OmniBazaar's Hybrid L2.5 Architecture where OmniCoin is deployed ON COTI V2 with dual consensus (COTI for transactions, Proof of Participation for business logic).
+
+**Core Innovation**: **Unified Validator Architecture** that processes DEX business logic, IPFS storage, and chat communications while OmniCoin token operations leverage COTI V2's high-performance blockchain with MPC privacy.
 
 ---
 
@@ -16,18 +18,27 @@ This document outlines the development strategy for the **OmniBazaar Unified Val
 - **Single Points of Failure**: PostgreSQL/Redis dependencies
 - **Fee Extraction**: Profits flow to centralized entities
 
-### Our Solution: Unified Validator Network
+### Our Solution: Hybrid L2.5 DEX Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                 OmniBazaar Unified Validator                    │
-│                    (4 cores, 8GB RAM, 100GB)                   │
+│            OmniBazaar Business Logic Layer                      │
+│                 (4 cores, 8GB RAM, 100GB)                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌───────────────┐ ┌─────────────┐ ┌──────────────┐ ┌────────┐ │
-│  │   Blockchain  │ │     DEX     │ │     IPFS     │ │  Chat  │ │
-│  │ Transactions  │ │ Operations  │ │   Storage    │ │ Network│ │
-│  │   (OmniCoin)  │ │ (Trading)   │ │ (Distributed)│ │(P2P)   │ │
+│  │   Validator   │ │     DEX     │ │     IPFS     │ │  Chat  │ │
+│  │  Consensus    │ │ Operations  │ │   Storage    │ │ Network│ │
+│  │     (PoP)     │ │ (Trading)   │ │ (Distributed)│ │(P2P)   │ │
 │  └───────────────┘ └─────────────┘ └──────────────┘ └────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 COTI V2 Transaction Layer                       │
+│              OmniCoin Token & Smart Contracts                   │
+│     • Privacy-enabled DEX settlements (MPC/Garbled Circuits)   │
+│     • High-performance transaction processing (40,000 TPS)      │
+│     • Zero gas fees for users (validators compensated via XOM)  │
 └─────────────────────────────────────────────────────────────────┘
                                │
                                ▼
@@ -40,14 +51,20 @@ This document outlines the development strategy for the **OmniBazaar Unified Val
               └─────────────────────────────────────┘
 ```
 
-### Unified Services Architecture
+### Dual-Layer Services Architecture
 
-**Single Validator Node Handles**:
-1. **Blockchain Validation**: OmniCoin Proof of Participation consensus
-2. **DEX Operations**: Order matching, settlement, and liquidity management
-3. **IPFS Storage**: Distributed file storage for marketplace listings and chat
-4. **Chat Network**: Peer-to-peer messaging and communication
-5. **Marketplace Data**: Product listings, reviews, and reputation data
+**OmniBazaar Validator Layer (Business Logic)**:
+1. **DEX Operations**: Order matching, routing, and liquidity aggregation via Proof of Participation consensus
+2. **IPFS Storage**: Distributed file storage for marketplace listings and chat
+3. **Chat Network**: Peer-to-peer messaging and communication
+4. **Marketplace Data**: Product listings, reviews, and reputation data
+5. **Fee Calculation**: Complex fee distribution algorithms
+
+**COTI V2 Transaction Layer (Settlement)**:
+1. **Token Operations**: OmniCoin transfers and approvals with MPC privacy
+2. **Smart Contract Execution**: DEX settlement contracts with garbled circuits
+3. **High-Performance Processing**: Up to 40,000 TPS for trade settlements
+4. **Privacy Features**: Confidential trade amounts and participant anonymity
 
 ---
 
@@ -72,26 +89,27 @@ Minimum Validator Specs:
 
 ```typescript
 class UnifiedValidatorNode {
-  private blockchainProcessor: OmniCoinBlockchainProcessor;
+  private cotiIntegration: COTITransactionLayer;
   private dexEngine: DecentralizedDEXEngine;
   private ipfsNode: IPFSStorageNode;
   private chatNetwork: P2PChatNetwork;
   private participationEngine: ProofOfParticipationEngine;
   
-  // Single node handles ALL services
+  // Validator handles business logic, COTI handles settlements
   async initialize(): Promise<void> {
-    await this.blockchainProcessor.start();    // 15% resource usage
-    await this.dexEngine.start();              // 20% resource usage
+    await this.cotiIntegration.start();        // 10% resource usage (lightweight)
+    await this.dexEngine.start();              // 25% resource usage (main DEX logic)
     await this.ipfsNode.start();               // 15% resource usage  
     await this.chatNetwork.start();            // 10% resource usage
-    // Total: ~60% of modest hardware, room for growth
+    await this.participationEngine.start();    // 15% resource usage
+    // Total: ~75% of modest hardware with enhanced capabilities
   }
 }
 ```
 
-### 1.2 Early On-Chain Critical Functions
+### 1.2 Hybrid L2.5 Settlement Functions
 
-#### Phase 1A: Immediate On-Chain Settlement (Week 2)
+#### Phase 1A: COTI V2 Settlement Integration (Week 2)
 
 ```solidity
 contract DEXSettlement {
@@ -719,7 +737,7 @@ Network Growth Impact:
 
 #### Phase 1: Foundation (Weeks 1-6)
 - ✅ Unified validator node architecture
-- ✅ Basic blockchain processing (OmniCoin)
+- ✅ COTI V2 integration for OmniCoin token operations
 - ✅ DEX order matching engine
 - ✅ IPFS storage integration
 - ✅ P2P chat foundation
