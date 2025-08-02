@@ -363,14 +363,14 @@ export class ValidatorDEXService {
     netAmount: string;
   } {
     const feeRate = isMaker ? this.config.feeStructure.maker : this.config.feeStructure.taker;
-    const amountBN = ethers.parseUnits(amount, 6); // Assuming 6 decimals
+    const amountBN = ethers.parseUnits(amount, 18); // Using 18 decimals for XOM
     const feeAmountBN = amountBN * BigInt(Math.floor(feeRate * 1000000)) / BigInt(1000000);
     const netAmountBN = amountBN - feeAmountBN;
     
     return {
-      feeAmount: ethers.formatUnits(feeAmountBN, 6),
+      feeAmount: ethers.formatUnits(feeAmountBN, 18),
       feeRate,
-      netAmount: ethers.formatUnits(netAmountBN, 6)
+      netAmount: ethers.formatUnits(netAmountBN, 18)
     };
   }
   
