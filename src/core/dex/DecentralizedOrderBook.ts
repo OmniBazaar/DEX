@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { BigNumber } from 'ethers';
 import { 
   UnifiedOrder, 
   PerpetualOrder, 
@@ -26,6 +27,16 @@ import {
 } from '../../types/config';
 import { ServiceHealth } from '../../types/validator';
 import { logger } from '../../utils/logger';
+import { 
+  OMNICOIN_DECIMALS,
+  PRECISION,
+  toWei,
+  fromWei,
+  calculateFee,
+  toDisplayAmount
+} from '../../constants/precision';
+import { HybridDEXStorage } from '../../storage/HybridDEXStorage';
+import { getStorageConfig } from '../../config/storage.config';
 
 // Interface for IPFS Storage Network (temporary until proper integration)
 interface IPFSStorageNetwork {
@@ -49,6 +60,7 @@ interface OrderBookConfig {
 export class DecentralizedOrderBook extends EventEmitter {
   private config: OrderBookConfig;
   private storage: IPFSStorageNetwork;
+  private hybridStorage?: HybridDEXStorage;
   private isInitialized = false;
   
   // Order management
@@ -90,14 +102,17 @@ export class DecentralizedOrderBook extends EventEmitter {
     try {
       logger.info('🚀 Initializing Decentralized Order Book...');
 
+      // Initialize hybrid storage
+      await this.initializeHybridStorage();
+      
       // Initialize trading pairs
       await this.initializeTradingPairs();
       
       // Initialize perpetual contracts
       await this.initializePerpetualContracts();
       
-      // Load existing orders from IPFS
-      await this.loadOrdersFromIPFS();
+      // Load existing orders from storage
+      await this.loadOrdersFromStorage();
       
       // Start order matching engine
       this.startOrderMatching();
@@ -149,9 +164,14 @@ export class DecentralizedOrderBook extends EventEmitter {
         replicationNodes: []
       };
 
-      // Store in IPFS
-      const ipfsCID = await this.storage.storeOrder(order);
-      order.ipfsCID = ipfsCID;
+      // Store in hybrid storage for high performance
+      if (this.hybridStorage) {
+        await this.hybridStorage.placeOrder(order);
+      } else {
+        // Fallback to IPFS
+        const ipfsCID = await this.storage.storeOrder(order);
+        order.ipfsCID = ipfsCID;
+      }
 
       // Add to local state
       this.orders.set(order.id, order);
@@ -246,8 +266,12 @@ export class DecentralizedOrderBook extends EventEmitter {
     order.status = 'CANCELLED';
     order.updatedAt = Date.now();
 
-    // Update IPFS
-    await this.storage.updateOrder(order);
+    // Update storage
+    if (this.hybridStorage) {
+      await this.hybridStorage.placeOrder(order); // Updates existing
+    } else {
+      await this.storage.updateOrder(order);
+    }
 
     // Remove from indices
     this.removeOrderFromIndices(order);
@@ -329,7 +353,7 @@ export class DecentralizedOrderBook extends EventEmitter {
       realizedPnL: '0', // Would track from trade history
       availableMargin,
       usedMargin,
-      marginRatio: parseFloat(usedMargin) / parseFloat(totalValue)
+      marginRatio: this.calculateMarginRatio(usedMargin, totalValue)
     };
   }
 
@@ -345,11 +369,18 @@ export class DecentralizedOrderBook extends EventEmitter {
     try {
       // Calculate conversion rate
       const rate = await this.getConversionRate(fromToken, 'XOM');
-      const expectedOutput = (parseFloat(amount) * rate).toString();
+      // Use BigNumber for 18-digit precision
+      const amountBN = toWei(amount);
+      const rateBN = toWei(rate.toString());
+      const expectedOutputBN = amountBN.mul(rateBN).div(PRECISION);
       
-      // Calculate fees
-      const fees = (parseFloat(expectedOutput) * this.config.feeStructure.autoConversion).toString();
-      const finalOutput = (parseFloat(expectedOutput) - parseFloat(fees)).toString();
+      // Calculate fees with proper precision
+      const feesBN = calculateFee(expectedOutputBN, this.config.feeStructure.autoConversion * 10000);
+      const finalOutputBN = expectedOutputBN.sub(feesBN);
+      
+      const expectedOutput = fromWei(expectedOutputBN);
+      const fees = fromWei(feesBN);
+      const finalOutput = fromWei(finalOutputBN);
       
       // Execute conversion (would integrate with DEX aggregator)
       const conversion: ConversionResult = {
@@ -380,6 +411,15 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Get order book for a pair
    */
   async getOrderBook(pair: string, limit: number = 100): Promise<OrderBook> {
+    // Try hybrid storage first for performance
+    if (this.hybridStorage) {
+      try {
+        return await this.hybridStorage.getOrderBook(pair, limit);
+      } catch (error) {
+        logger.warn('Failed to get order book from hybrid storage, falling back to local', error);
+      }
+    }
+    
     const orderBook = this.orderBooks.get(pair);
     
     if (!orderBook) {
@@ -438,11 +478,20 @@ export class DecentralizedOrderBook extends EventEmitter {
   async shutdown(): Promise<void> {
     logger.info('Shutting down Decentralized Order Book...');
     
-    // Save all pending orders to IPFS
+    // Save all pending orders to storage
     for (const order of this.orders.values()) {
       if (order.status === 'OPEN') {
-        await this.storage.updateOrder(order);
+        if (this.hybridStorage) {
+          await this.hybridStorage.placeOrder(order);
+        } else {
+          await this.storage.updateOrder(order);
+        }
       }
+    }
+    
+    // Shutdown hybrid storage
+    if (this.hybridStorage) {
+      await this.hybridStorage.shutdown();
     }
     
     // Clear local state
@@ -526,6 +575,21 @@ export class DecentralizedOrderBook extends EventEmitter {
     };
   }
 
+  /**
+   * Initialize hybrid storage system
+   */
+  private async initializeHybridStorage(): Promise<void> {
+    try {
+      const storageConfig = getStorageConfig();
+      this.hybridStorage = new HybridDEXStorage(storageConfig);
+      await this.hybridStorage.initialize();
+      logger.info('✅ Hybrid storage initialized');
+    } catch (error) {
+      logger.warn('Failed to initialize hybrid storage, using IPFS only', error);
+      // Continue without hybrid storage - fallback to IPFS
+    }
+  }
+
   private async initializeTradingPairs(): Promise<void> {
     // Initialize default trading pairs (all against XOM)
     for (const pairSymbol of this.config.tradingPairs) {
@@ -554,9 +618,15 @@ export class DecentralizedOrderBook extends EventEmitter {
     logger.info('Initializing perpetual contracts...');
   }
 
-  private async loadOrdersFromIPFS(): Promise<void> {
-    // Load existing orders from IPFS storage
-    logger.info('Loading orders from IPFS...');
+  private async loadOrdersFromStorage(): Promise<void> {
+    // Load existing orders from storage
+    if (this.hybridStorage) {
+      logger.info('Loading orders from hybrid storage...');
+      // Would implement loading from PostgreSQL warm storage
+    } else {
+      logger.info('Loading orders from IPFS...');
+      // Load from IPFS
+    }
   }
 
   private startOrderMatching(): void {
@@ -571,7 +641,10 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   // Placeholder implementations for complex calculations
   private calculateMarginRequired(size: string, leverage: number, _contract: string): string {
-    return (parseFloat(size) / leverage).toString();
+    // Use BigNumber for proper division
+    const sizeBN = toWei(size);
+    const marginBN = sizeBN.div(leverage);
+    return fromWei(marginBN);
   }
 
   private async checkMarginAvailability(userId: string, required: string): Promise<void> {
@@ -605,13 +678,18 @@ export class DecentralizedOrderBook extends EventEmitter {
   private calculateUnrealizedPnL(input: Position | Position[]): string {
     // Calculate unrealized P&L
     if (Array.isArray(input)) {
-      return input.reduce((sum, p) => sum + parseFloat(p.unrealizedPnL), 0).toString();
+      return input.reduce((sum, p) => {
+        const pnlBN = toWei(p.unrealizedPnL);
+        return sum.add(pnlBN);
+      }, BigNumber.from(0)).toString();
     }
     return input.unrealizedPnL;
   }
 
   private calculatePerpetualFees(size: string, _leverage: number): string {
-    return (parseFloat(size) * this.config.feeStructure.perpetualTaker).toString();
+    const sizeBN = toWei(size);
+    const feeBN = calculateFee(sizeBN, this.config.feeStructure.perpetualTaker * 10000);
+    return fromWei(feeBN);
   }
 
   private async getUserBalances(userId: string): Promise<Balance[]> {
@@ -630,17 +708,26 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   private calculatePortfolioValue(balances: Balance[], _positions: Position[]): string {
-    const balanceValue = balances.reduce((sum, b) => sum + parseFloat(b.usdValue || '0'), 0);
-    return balanceValue.toString();
+    const balanceValue = balances.reduce((sum, b) => {
+      const valueBN = b.usdValue ? toWei(b.usdValue) : BigNumber.from(0);
+      return sum.add(valueBN);
+    }, BigNumber.from(0));
+    return fromWei(balanceValue);
   }
 
   private calculateUsedMargin(positions: Position[]): string {
-    return positions.reduce((sum, p) => sum + parseFloat(p.margin), 0).toString();
+    const totalMargin = positions.reduce((sum, p) => {
+      const marginBN = toWei(p.margin);
+      return sum.add(marginBN);
+    }, BigNumber.from(0));
+    return fromWei(totalMargin);
   }
 
   private calculateAvailableMargin(balances: Balance[], usedMargin: string): string {
-    const totalValue = parseFloat(this.calculatePortfolioValue(balances, []));
-    return (totalValue - parseFloat(usedMargin)).toString();
+    const totalValueBN = toWei(this.calculatePortfolioValue(balances, []));
+    const usedMarginBN = toWei(usedMargin);
+    const availableMarginBN = totalValueBN.sub(usedMarginBN);
+    return fromWei(availableMarginBN);
   }
 
   private async getConversionRate(fromToken: string, toToken: string): Promise<number> {
@@ -726,5 +813,19 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   async getPerpetualPositions(userId: string): Promise<Position[]> {
     return this.getUserPositions(userId);
+  }
+
+  /**
+   * Calculate margin ratio with proper precision
+   */
+  private calculateMarginRatio(usedMargin: string, totalValue: string): number {
+    if (totalValue === '0' || !totalValue) return 0;
+    
+    const usedMarginBN = toWei(usedMargin);
+    const totalValueBN = toWei(totalValue);
+    
+    // Calculate ratio with 4 decimal precision
+    const ratioBN = usedMarginBN.mul(10000).div(totalValueBN);
+    return ratioBN.toNumber() / 10000;
   }
 } 
