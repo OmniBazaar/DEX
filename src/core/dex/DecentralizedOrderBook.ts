@@ -12,7 +12,6 @@
  */
 
 import { EventEmitter } from 'events';
-import { BigNumber } from 'ethers';
 import { 
   UnifiedOrder, 
   PerpetualOrder, 
@@ -28,58 +27,234 @@ import {
 import { ServiceHealth } from '../../types/validator';
 import { logger } from '../../utils/logger';
 import { 
-  OMNICOIN_DECIMALS,
   PRECISION,
   toWei,
   fromWei,
-  calculateFee,
-  toDisplayAmount
+  calculateFee
 } from '../../constants/precision';
 import { HybridDEXStorage } from '../../storage/HybridDEXStorage';
 import { getStorageConfig } from '../../config/storage.config';
 
-// Interface for IPFS Storage Network (temporary until proper integration)
-interface IPFSStorageNetwork {
-  storeOrder(order: any): Promise<string>;
-  updateOrder(order: any): Promise<void>;
+/**
+ * Perpetual futures contract configuration
+ */
+interface PerpetualContract {
+  /** Contract symbol */
+  symbol: string;
+  /** Base asset */
+  baseAsset: string;
+  /** Quote asset */
+  quoteAsset: string;
+  /** Current funding rate */
+  fundingRate: number;
+  /** Funding interval in seconds */
+  fundingInterval: number;
+  /** Maximum allowed leverage */
+  maxLeverage: number;
+  /** Minimum order size */
+  minOrderSize: number;
+  /** Whether contract is active */
+  isActive: boolean;
 }
 
+interface PriceData {
+  symbol: string;
+  price: number;
+  timestamp: number;
+  volume: number;
+  high24h: number;
+  low24h: number;
+  change24h: number;
+}
+
+interface OrderFilters {
+  status?: string;
+  pair?: string;
+  type?: string;
+  limit?: number;
+  offset?: number;
+}
+
+interface TradeFilters {
+  pair?: string;
+  type?: string;
+  startTime?: number;
+  endTime?: number;
+  limit?: number;
+  offset?: number;
+}
+
+interface CandleOptions {
+  startTime?: number;
+  endTime?: number;
+  limit?: number;
+}
+
+interface FundingRateOptions {
+  startTime?: number;
+  endTime?: number;
+  limit?: number;
+}
+
+interface FundingRateEntry {
+  symbol: string;
+  fundingRate: number;
+  fundingTime: number;
+  markPrice: number;
+  indexPrice: number;
+}
+
+interface TickerData {
+  symbol: string;
+  price: number;
+  priceChange: number;
+  priceChangePercent: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
+  quoteVolume24h: number;
+  timestamp: number;
+}
+
+interface BlockTransaction {
+  hash: string;
+  from: string;
+  to: string;
+  value: string;
+  gasUsed: string;
+  type: string;
+  height: number;
+  data: Record<string, unknown>;
+}
+
+interface OrderResult {
+  success: boolean;
+  orderId: string;
+  order: UnifiedOrder;
+  fees: number;
+  message?: string;
+}
+
+interface PerpetualOrderResult {
+  success: boolean;
+  orderId: string;
+  order: PerpetualOrder;
+  fees: number;
+  requiredMargin: number;
+  message?: string;
+}
+
+interface CancelResult {
+  success: boolean;
+  orderId: string;
+  order?: UnifiedOrder;
+  message?: string;
+}
+
+
+interface MarketDepth {
+  bids: Array<[number, number]>;
+  asks: Array<[number, number]>;
+  lastUpdateId: number;
+  timestamp: number;
+}
+
+interface MarketStatistics {
+  totalVolume24h: number;
+  totalTrades24h: number;
+  activePairs: number;
+  topGainers: TickerData[];
+  topLosers: TickerData[];
+  totalValueLocked: number;
+  networkFees24h: number;
+  activeValidators: number;
+  timestamp: number;
+}
+
+// Interface for IPFS Storage Network (temporary until proper integration)
+interface IPFSStorageNetwork {
+  storeOrder(order: UnifiedOrder): Promise<string>;
+  updateOrder(order: UnifiedOrder): Promise<void>;
+}
+
+/**
+ * Configuration for the decentralized order book
+ */
 interface OrderBookConfig {
+  /** List of supported trading pairs */
   tradingPairs: string[];
+  /** Fee structure configuration */
   feeStructure: {
+    /** Spot maker fee rate */
     spotMaker: number;
+    /** Spot taker fee rate */
     spotTaker: number;
+    /** Perpetual maker fee rate */
     perpetualMaker: number;
+    /** Perpetual taker fee rate */
     perpetualTaker: number;
+    /** Auto-conversion fee rate */
     autoConversion: number;
   };
+  /** Maximum leverage allowed */
   maxLeverage: number;
+  /** Liquidation threshold */
   liquidationThreshold: number;
 }
 
+/**
+ * Decentralized Order Book - Core Trading Engine
+ * 
+ * Handles all trading operations with IPFS storage and validator consensus.
+ * Uses hybrid storage architecture for optimal performance.
+ * Resource usage: ~20% of validator hardware
+ * 
+ * @example
+ * ```typescript
+ * const orderBook = new DecentralizedOrderBook(config, storage);
+ * await orderBook.initialize();
+ * const result = await orderBook.placeOrder(orderData);
+ * ```
+ */
 export class DecentralizedOrderBook extends EventEmitter {
+  /** Order book configuration */
   private config: OrderBookConfig;
+  /** IPFS storage network */
   private storage: IPFSStorageNetwork;
+  /** Hybrid storage for performance optimization */
   private hybridStorage?: HybridDEXStorage;
+  /** Initialization status */
   private isInitialized = false;
   
-  // Order management
+  /** All orders indexed by ID */
   private orders = new Map<string, UnifiedOrder>();
+  /** Orders indexed by user ID */
   private ordersByUser = new Map<string, Set<string>>();
+  /** Orders indexed by trading pair */
   private ordersByPair = new Map<string, Set<string>>();
   
-  // Perpetual futures
+  /** Perpetual positions (currently unused in mock implementation) */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private _positions = new Map<string, Position>();
-  private perpetualContracts = new Map<string, any>();
+  /** Perpetual contracts configuration */
+  private perpetualContracts = new Map<string, PerpetualContract>();
   
-  // Market data
+  /** Order books by trading pair */
   private orderBooks = new Map<string, OrderBook>();
+  /** Recent trades by pair */
   private recentTrades = new Map<string, Trade[]>();
-  private _priceData = new Map<string, any>();
+  /** Price data cache (currently unused in mock implementation) */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private _priceData = new Map<string, PriceData>();
   
-  // Trading pairs
+  /** Trading pairs configuration */
   private tradingPairs = new Map<string, TradingPair>();
   
+  /**
+   * Creates a new DecentralizedOrderBook instance
+   * @param config - Order book configuration
+   * @param storage - IPFS storage network instance
+   */
   constructor(config: OrderBookConfig, storage: IPFSStorageNetwork) {
     super();
     this.config = config;
@@ -92,7 +267,9 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Initialize the order book
+   * Initialize the order book with all subsystems
+   * Sets up hybrid storage, trading pairs, perpetual contracts, and matching engine
+   * @throws {Error} If already initialized or initialization fails
    */
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -133,9 +310,24 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Place a new order
+   * Place a new trading order in the decentralized order book
+   * Validates order, stores in hybrid storage, and attempts immediate matching
+   * @param orderData - Partial order data (will be completed with defaults)
+   * @returns Promise resolving to order result with execution details
+   * @throws {Error} If order validation fails or storage errors occur
+   * @example
+   * ```typescript
+   * const result = await orderBook.placeOrder({
+   *   userId: 'user123',
+   *   type: 'LIMIT',
+   *   side: 'BUY',
+   *   pair: 'XOM/USDC',
+   *   quantity: '100',
+   *   price: '1.50'
+   * });
+   * ```
    */
-  async placeOrder(orderData: Partial<UnifiedOrder>): Promise<any> {
+  async placeOrder(orderData: Partial<UnifiedOrder>): Promise<OrderResult> {
     try {
       // Validate order
       this.validateOrder(orderData);
@@ -205,9 +397,24 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Place perpetual futures order
+   * Place a perpetual futures order with leverage and margin requirements
+   * Calculates margin requirements and manages positions
+   * @param orderData - Perpetual order data
+   * @returns Promise resolving to perpetual order result with position details
+   * @throws {Error} If margin is insufficient or validation fails
+   * @example
+   * ```typescript
+   * const result = await orderBook.placePerpetualOrder({
+   *   userId: 'user123',
+   *   type: 'LIMIT',
+   *   side: 'LONG',
+   *   contract: 'XOM-PERP',
+   *   size: '100',
+   *   leverage: 10
+   * });
+   * ```
    */
-  async placePerpetualOrder(orderData: Partial<PerpetualOrder>): Promise<any> {
+  async placePerpetualOrder(orderData: Partial<PerpetualOrder>): Promise<PerpetualOrderResult> {
     try {
       // Validate perpetual order
       this.validatePerpetualOrder(orderData);
@@ -223,15 +430,31 @@ export class DecentralizedOrderBook extends EventEmitter {
       await this.checkMarginAvailability(orderData.userId!, marginRequired);
 
       // Create position or modify existing
-      const position = await this.updatePosition(orderData);
+      await this.updatePosition(orderData);
       
+      const orderId = this.generateOrderId();
+      const order: PerpetualOrder = {
+        id: orderId,
+        userId: orderData.userId!,
+        type: orderData.type || 'LIMIT',
+        contract: orderData.contract!,
+        side: orderData.side!,
+        size: orderData.size!,
+        leverage: orderData.leverage!,
+        margin: marginRequired,
+        reduceOnly: orderData.reduceOnly || false,
+        timeInForce: orderData.timeInForce || 'GTC',
+        price: orderData.price,
+        status: 'OPEN',
+        timestamp: Date.now()
+      };
+
       const result = {
-        orderId: this.generateOrderId(),
-        position,
-        marginUsed: marginRequired,
-        liquidationPrice: this.calculateLiquidationPrice(position),
-        unrealizedPnL: this.calculateUnrealizedPnL(position),
-        fees: this.calculatePerpetualFees(orderData.size!, orderData.leverage!)
+        success: true,
+        orderId,
+        order,
+        fees: parseFloat(this.calculatePerpetualFees(orderData.size!, orderData.leverage!)),
+        requiredMargin: parseFloat(marginRequired)
       };
 
       this.emit('perpetualOrderPlaced', result);
@@ -245,21 +468,29 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Cancel an order
+   * Cancel an open order
+   * Validates ownership and updates storage
+   * @param orderId - ID of order to cancel
+   * @param userId - ID of user requesting cancellation
+   * @returns Promise resolving to cancellation result
+   * @example
+   * ```typescript
+   * const result = await orderBook.cancelOrder('order123', 'user456');
+   * ```
    */
-  async cancelOrder(orderId: string, userId: string): Promise<any> {
+  async cancelOrder(orderId: string, userId: string): Promise<CancelResult> {
     const order = this.orders.get(orderId);
     
     if (!order) {
-      return { success: false, message: 'Order not found' };
+      return { success: false, orderId, message: 'Order not found' };
     }
     
     if (order.userId !== userId) {
-      return { success: false, message: 'Unauthorized' };
+      return { success: false, orderId, message: 'Unauthorized' };
     }
     
     if (order.status !== 'OPEN') {
-      return { success: false, message: 'Order cannot be cancelled' };
+      return { success: false, orderId, message: 'Order cannot be cancelled' };
     }
 
     // Update order status
@@ -278,11 +509,14 @@ export class DecentralizedOrderBook extends EventEmitter {
 
     this.emit('orderCancelled', order);
     
-    return { success: true, timestamp: Date.now() };
+    return { success: true, orderId, order };
   }
 
   /**
-   * Get order by ID
+   * Get order details by ID with user authorization
+   * @param orderId - Order ID to retrieve
+   * @param userId - User ID for authorization
+   * @returns Promise resolving to order or null if not found/unauthorized
    */
   async getOrder(orderId: string, userId: string): Promise<UnifiedOrder | null> {
     const order = this.orders.get(orderId);
@@ -295,9 +529,20 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Get user orders
+   * Get orders for a specific user with filtering and pagination
+   * @param userId - User ID to get orders for
+   * @param filters - Filters for pair, status, pagination
+   * @returns Promise resolving to filtered list of user orders
+   * @example
+   * ```typescript
+   * const orders = await orderBook.getUserOrders('user123', {
+   *   pair: 'XOM/USDC',
+   *   status: 'OPEN',
+   *   limit: 20
+   * });
+   * ```
    */
-  async getUserOrders(userId: string, filters: any): Promise<UnifiedOrder[]> {
+  async getUserOrders(userId: string, filters: OrderFilters): Promise<UnifiedOrder[]> {
     const userOrderIds = this.ordersByUser.get(userId) || new Set();
     let orders: UnifiedOrder[] = [];
 
@@ -325,7 +570,14 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Get user portfolio
+   * Get complete user portfolio including balances, positions, and P&L
+   * @param userId - User ID to get portfolio for
+   * @returns Promise resolving to comprehensive portfolio data
+   * @example
+   * ```typescript
+   * const portfolio = await orderBook.getPortfolio('user123');
+   * console.log('Total value:', portfolio.totalValue);
+   * ```
    */
   async getPortfolio(userId: string): Promise<Portfolio> {
     // Get balances (would integrate with wallet/blockchain)
@@ -358,7 +610,22 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Auto-convert tokens to XOM
+   * Auto-convert any token to XOM for OmniCoin-centric trading
+   * Uses 18-digit precision arithmetic for accurate calculations
+   * @param _userId - User requesting conversion
+   * @param fromToken - Source token symbol to convert from
+   * @param amount - Amount to convert (in source token units)
+   * @param _slippageTolerance - Maximum acceptable slippage (0-1)
+   * @returns Promise resolving to conversion result with fees and final amount
+   * @example
+   * ```typescript
+   * const result = await orderBook.autoConvertToXOM(
+   *   'user123',
+   *   'USDC',
+   *   '1000',
+   *   0.005
+   * );
+   * ```
    */
   async autoConvertToXOM(
     _userId: string,
@@ -369,16 +636,15 @@ export class DecentralizedOrderBook extends EventEmitter {
     try {
       // Calculate conversion rate
       const rate = await this.getConversionRate(fromToken, 'XOM');
-      // Use BigNumber for 18-digit precision
+      // Use bigint for 18-digit precision
       const amountBN = toWei(amount);
       const rateBN = toWei(rate.toString());
-      const expectedOutputBN = amountBN.mul(rateBN).div(PRECISION);
+      const expectedOutputBN = (amountBN * rateBN) / PRECISION;
       
       // Calculate fees with proper precision
       const feesBN = calculateFee(expectedOutputBN, this.config.feeStructure.autoConversion * 10000);
-      const finalOutputBN = expectedOutputBN.sub(feesBN);
+      const finalOutputBN = expectedOutputBN - feesBN;
       
-      const expectedOutput = fromWei(expectedOutputBN);
       const fees = fromWei(feesBN);
       const finalOutput = fromWei(finalOutputBN);
       
@@ -408,7 +674,14 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Get order book for a pair
+   * Get order book data for a trading pair with validator consensus
+   * @param pair - Trading pair symbol (e.g., 'XOM/USDC')
+   * @param limit - Maximum number of price levels to return (default: 100)
+   * @returns Promise resolving to order book with bids, asks, and consensus metadata
+   * @example
+   * ```typescript
+   * const orderBook = await orderBook.getOrderBook('XOM/USDC', 50);
+   * ```
    */
   async getOrderBook(pair: string, limit: number = 100): Promise<OrderBook> {
     // Try hybrid storage first for performance
@@ -445,7 +718,8 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
-   * Get health status
+   * Get health status of the order book service
+   * @returns Promise resolving to service health with operational metrics
    */
   async getHealthStatus(): Promise<ServiceHealth> {
     const activeOrders = Array.from(this.orders.values()).filter(o => o.status === 'OPEN').length;
@@ -467,13 +741,15 @@ export class DecentralizedOrderBook extends EventEmitter {
   /**
    * Process block transactions for settlement
    */
-  async processBlockTransactions(block: any): Promise<void> {
+  async processBlockTransactions(block: BlockTransaction): Promise<void> {
     // Process settlement transactions from blockchain
     logger.debug('Processing block transactions', { blockHeight: block.height });
   }
 
   /**
-   * Shutdown the order book
+   * Gracefully shutdown the order book
+   * Saves all pending orders to storage and cleans up resources
+   * @returns Promise that resolves when shutdown is complete
    */
   async shutdown(): Promise<void> {
     logger.info('Shutting down Decentralized Order Book...');
@@ -542,7 +818,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     this.ordersByPair.get(order.pair)?.delete(order.id);
   }
 
-  private async executeMarketOrder(order: UnifiedOrder): Promise<any> {
+  private async executeMarketOrder(order: UnifiedOrder): Promise<OrderResult> {
     // Market order execution logic
     order.status = 'FILLED';
     order.filled = order.quantity;
@@ -550,28 +826,22 @@ export class DecentralizedOrderBook extends EventEmitter {
     order.averagePrice = '1.50'; // Would calculate from matches
     
     return {
+      success: true,
       orderId: order.id,
-      status: order.status,
-      filled: order.filled,
-      remaining: order.remaining,
-      averagePrice: order.averagePrice,
-      fees: order.fees,
-      timestamp: order.updatedAt
+      order: order,
+      fees: parseFloat(order.fees)
     };
   }
 
-  private async addLimitOrder(order: UnifiedOrder): Promise<any> {
+  private async addLimitOrder(order: UnifiedOrder): Promise<OrderResult> {
     // Add to order book
     order.status = 'OPEN';
     
     return {
+      success: true,
       orderId: order.id,
-      status: order.status,
-      filled: order.filled,
-      remaining: order.remaining,
-      averagePrice: order.averagePrice,
-      fees: order.fees,
-      timestamp: order.updatedAt
+      order: order,
+      fees: parseFloat(order.fees)
     };
   }
 
@@ -641,9 +911,9 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   // Placeholder implementations for complex calculations
   private calculateMarginRequired(size: string, leverage: number, _contract: string): string {
-    // Use BigNumber for proper division
+    // Use bigint for proper division
     const sizeBN = toWei(size);
-    const marginBN = sizeBN.div(leverage);
+    const marginBN = sizeBN / BigInt(leverage);
     return fromWei(marginBN);
   }
 
@@ -670,9 +940,10 @@ export class DecentralizedOrderBook extends EventEmitter {
     };
   }
 
-  private calculateLiquidationPrice(position: Position): string {
-    // Calculate liquidation price
-    return position.liquidationPrice;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private _calculateLiquidationPrice(_position: Position): string {
+    // Calculate liquidation price - simplified implementation
+    return '1000.00'; // Would calculate based on margin and leverage
   }
 
   private calculateUnrealizedPnL(input: Position | Position[]): string {
@@ -680,8 +951,8 @@ export class DecentralizedOrderBook extends EventEmitter {
     if (Array.isArray(input)) {
       return input.reduce((sum, p) => {
         const pnlBN = toWei(p.unrealizedPnL);
-        return sum.add(pnlBN);
-      }, BigNumber.from(0)).toString();
+        return sum + pnlBN;
+      }, 0n).toString();
     }
     return input.unrealizedPnL;
   }
@@ -709,24 +980,24 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   private calculatePortfolioValue(balances: Balance[], _positions: Position[]): string {
     const balanceValue = balances.reduce((sum, b) => {
-      const valueBN = b.usdValue ? toWei(b.usdValue) : BigNumber.from(0);
-      return sum.add(valueBN);
-    }, BigNumber.from(0));
+      const valueBN = b.usdValue ? toWei(b.usdValue) : 0n;
+      return sum + valueBN;
+    }, 0n);
     return fromWei(balanceValue);
   }
 
   private calculateUsedMargin(positions: Position[]): string {
     const totalMargin = positions.reduce((sum, p) => {
       const marginBN = toWei(p.margin);
-      return sum.add(marginBN);
-    }, BigNumber.from(0));
+      return sum + marginBN;
+    }, 0n);
     return fromWei(totalMargin);
   }
 
   private calculateAvailableMargin(balances: Balance[], usedMargin: string): string {
     const totalValueBN = toWei(this.calculatePortfolioValue(balances, []));
     const usedMarginBN = toWei(usedMargin);
-    const availableMarginBN = totalValueBN.sub(usedMarginBN);
+    const availableMarginBN = totalValueBN - usedMarginBN;
     return fromWei(availableMarginBN);
   }
 
@@ -741,22 +1012,22 @@ export class DecentralizedOrderBook extends EventEmitter {
     return Array.from(this.tradingPairs.values());
   }
 
-  async getTicker(pair: string): Promise<any> {
+  async getTicker(pair: string): Promise<TickerData> {
     // Return ticker data for pair
     return {
       symbol: pair,
-      lastPrice: '1.50',
-      priceChange: '0.05',
-      priceChangePercent: '3.45',
-      high24h: '1.55',
-      low24h: '1.45',
-      volume24h: '10000',
-      quoteVolume24h: '15000',
+      price: 1.50,
+      priceChange: 0.05,
+      priceChangePercent: 3.45,
+      high24h: 1.55,
+      low24h: 1.45,
+      volume24h: 10000,
+      quoteVolume24h: 15000,
       timestamp: Date.now()
     };
   }
 
-  async getAllTickers(): Promise<any[]> {
+  async getAllTickers(): Promise<TickerData[]> {
     const tickers = [];
     for (const pair of this.tradingPairs.keys()) {
       tickers.push(await this.getTicker(pair));
@@ -768,45 +1039,46 @@ export class DecentralizedOrderBook extends EventEmitter {
     return this.recentTrades.get(pair)?.slice(0, limit) || [];
   }
 
-  async getCandles(pair: string, interval: string, options: any): Promise<Candle[]> {
+  async getCandles(pair: string, interval: string, options: CandleOptions): Promise<Candle[]> {
     // Return candlestick data
     logger.debug('Getting candles', { pair, interval, options });
     return [];
   }
 
-  async getMarketDepth(pair: string, limit: number): Promise<any> {
+  async getMarketDepth(pair: string, limit: number): Promise<MarketDepth> {
     const orderBook = await this.getOrderBook(pair, limit);
     return {
       lastUpdateId: Date.now(),
-      bids: orderBook.bids,
-      asks: orderBook.asks
+      bids: orderBook.bids.map(level => [parseFloat(level.price), parseFloat(level.quantity)] as [number, number]),
+      asks: orderBook.asks.map(level => [parseFloat(level.price), parseFloat(level.quantity)] as [number, number]),
+      timestamp: Date.now()
     };
   }
 
-  async getPerpetualContracts(): Promise<any[]> {
+  async getPerpetualContracts(): Promise<PerpetualContract[]> {
     return Array.from(this.perpetualContracts.values());
   }
 
-  async getFundingRateHistory(symbol: string, options: any): Promise<any[]> {
+  async getFundingRateHistory(symbol: string, options: FundingRateOptions): Promise<FundingRateEntry[]> {
     logger.debug('Getting funding rate history', { symbol, options });
     return [];
   }
 
-  async getMarketStatistics(): Promise<any> {
+  async getMarketStatistics(): Promise<MarketStatistics> {
     return {
-      totalVolume24h: '1000000',
+      totalVolume24h: 1000000,
       totalTrades24h: 5000,
       activePairs: this.tradingPairs.size,
       topGainers: [],
       topLosers: [],
-      totalValueLocked: '10000000',
-      networkFees24h: '1000',
+      totalValueLocked: 10000000,
+      networkFees24h: 1000,
       activeValidators: 50,
       timestamp: Date.now()
     };
   }
 
-  async getUserTrades(userId: string, filters: any): Promise<Trade[]> {
+  async getUserTrades(userId: string, filters: TradeFilters): Promise<Trade[]> {
     logger.debug('Getting user trades', { userId, filters });
     return [];
   }
@@ -825,7 +1097,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     const totalValueBN = toWei(totalValue);
     
     // Calculate ratio with 4 decimal precision
-    const ratioBN = usedMarginBN.mul(10000).div(totalValueBN);
-    return ratioBN.toNumber() / 10000;
+    const ratioBN = (usedMarginBN * 10000n) / totalValueBN;
+    return Number(ratioBN) / 10000;
   }
 } 

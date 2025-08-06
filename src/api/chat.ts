@@ -9,9 +9,80 @@
 
 import { Router, Request, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
-import { P2PChatNetwork } from '../../../Validator/src/services/chat/P2PChatNetwork';
-import { logger } from '../../../Validator/src/utils/Logger';
+import { logger } from '../utils/logger';
 
+/**
+ * Chat message structure
+ */
+interface ChatMessage {
+  /** Message content */
+  content: string;
+  /** Channel identifier */
+  channelId: string;
+  /** Type of message */
+  messageType: 'text' | 'image' | 'file';
+  /** User identifier */
+  userId: string;
+  /** Message timestamp */
+  timestamp: number;
+}
+
+/**
+ * Stored chat message with ID
+ */
+interface StoredMessage extends ChatMessage {
+  /** Unique message identifier */
+  messageId: string;
+}
+
+/**
+ * Result of message sending operation
+ */
+interface MessageResult {
+  /** Whether message was sent successfully */
+  success: boolean;
+  /** Generated message ID */
+  messageId: string;
+  /** Send timestamp */
+  timestamp: number;
+}
+
+/**
+ * Chat network health status
+ */
+interface ChatHealthStatus {
+  /** Overall health status */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  /** Number of active connections */
+  activeConnections: number;
+  /** Size of message queue */
+  messageQueueSize: number;
+  /** Service uptime in seconds */
+  uptime: number;
+  /** Last error message */
+  lastError?: string;
+}
+
+/**
+ * P2P chat network interface
+ */
+interface P2PChatNetwork {
+  sendMessage(message: ChatMessage): Promise<MessageResult>;
+  getMessages(channelId: string, limit: number, offset: number): Promise<StoredMessage[]>;
+  getHealthStatus(): Promise<ChatHealthStatus>;
+}
+
+/**
+ * Create chat API routes for the unified validator DEX
+ * Handles P2P messaging and communication
+ * @param chat - P2P chat network implementation
+ * @returns Express router with chat endpoints
+ * @example
+ * ```typescript
+ * const router = createChatRoutes(chatNetwork);
+ * app.use('/api/v1/chat', router);
+ * ```
+ */
 export function createChatRoutes(chat: P2PChatNetwork): Router {
   const router = Router();
 
@@ -35,17 +106,17 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
           });
         }
 
-        const message = {
+        const message: ChatMessage = {
           content: req.body.content,
           channelId: req.body.channelId,
           messageType: req.body.messageType || 'text',
-          userId: req.headers['x-user-id'] as string,
+          userId: req.headers['x-user-id'] as string || 'anonymous',
           timestamp: Date.now()
         };
 
         const result = await chat.sendMessage(message);
 
-        res.status(201).json({
+        return res.status(201).json({
           success: result.success,
           messageId: result.messageId,
           timestamp: result.timestamp
@@ -53,7 +124,7 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
 
       } catch (error) {
         logger.error('Error sending message:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to send message',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -74,12 +145,12 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
     async (req: Request, res: Response) => {
       try {
         const { channelId } = req.params;
-        const limit = (req.query.limit as number) || 50;
-        const offset = (req.query.offset as number) || 0;
+        const limit = parseInt(req.query['limit'] as string) || 50;
+        const offset = parseInt(req.query['offset'] as string) || 0;
 
-        const messages = await chat.getMessages(channelId, limit, offset);
+        const messages = await chat.getMessages(channelId || '', limit, offset);
 
-        res.json({
+        return res.json({
           channelId,
           messages,
           limit,
@@ -88,7 +159,7 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
 
       } catch (error) {
         logger.error('Error getting messages:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get messages',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -103,10 +174,10 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
   router.get('/health', async (_req: Request, res: Response) => {
     try {
       const health = await chat.getHealthStatus();
-      res.json(health);
+      return res.json(health);
     } catch (error) {
       logger.error('Error getting chat health:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get chat health',
         message: error instanceof Error ? error.message : 'Unknown error'
       });

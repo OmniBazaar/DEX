@@ -11,10 +11,123 @@
 
 import { Router, Request, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
-import { DecentralizedOrderBook } from '../../../Validator/src/services/dex/DecentralizedOrderBook';
-import { FeeDistributionEngine } from '../../../Validator/src/core/FeeDistributionEngine';
-import { logger } from '../../../Validator/src/utils/Logger';
+import { logger } from '../utils/logger';
+import { UnifiedOrder, Portfolio, Position, Trade, FeeInfo, ConversionResult } from '../types/config';
 
+/**
+ * Filters for querying orders
+ */
+interface OrderFilters {
+  /** Trading pair filter */
+  pair?: string;
+  /** Order status filter */
+  status?: string;
+  /** Maximum number of results */
+  limit?: number;
+  /** Result offset for pagination */
+  offset?: number;
+  /** Start time filter */
+  startTime?: Date;
+  /** End time filter */
+  endTime?: Date;
+}
+
+/**
+ * Decentralized order book interface for trading operations
+ */
+interface DecentralizedOrderBook {
+  submitOrder(order: Partial<UnifiedOrder>): Promise<OrderResult>;
+  getOrder(orderId: string): Promise<UnifiedOrder | null>;
+  cancelOrder(orderId: string, userId: string): Promise<CancelResult>;
+  getUserOrders(userId: string, filters?: OrderFilters): Promise<UnifiedOrder[]>;
+  getOpenOrders(userId: string): Promise<UnifiedOrder[]>;
+  getOrderHistory(userId: string, filters?: OrderFilters): Promise<UnifiedOrder[]>;
+  getPortfolio(userId: string): Promise<Portfolio>;
+  getPositions(userId: string): Promise<Position[]>;
+  closePosition(positionId: string, userId: string): Promise<Position>;
+  getUserTrades(userId: string, filters?: OrderFilters): Promise<Trade[]>;
+  placePerpetualOrder(order: Partial<UnifiedOrder>): Promise<OrderResult>;
+  getPerpetualPositions(userId: string): Promise<Position[]>;
+  autoConvertToXOM(userId: string, fromToken: string, amount: string, slippageTolerance: number): Promise<ConversionResult>;
+}
+
+/**
+ * Trading fee information
+ */
+interface TradingFees {
+  /** Fee amount */
+  amount: string;
+  /** Asset used for fee payment */
+  asset: string;
+  /** Fee type */
+  type: 'maker' | 'taker';
+  /** Associated order ID */
+  orderId: string;
+  /** User ID */
+  userId: string;
+}
+
+/**
+ * Fee distribution engine interface
+ */
+interface FeeDistributionEngine {
+  recordTradingFees(fees: TradingFees): Promise<void>;
+  getUserFeeInfo(userId: string): Promise<FeeInfo>;
+  recordConversionFees(fees: TradingFees): Promise<void>;
+}
+
+/**
+ * Result of order submission
+ */
+interface OrderResult {
+  /** Unique order identifier */
+  orderId: string;
+  /** Order status */
+  status: string;
+  /** Whether order was filled */
+  filled: boolean;
+  /** Remaining quantity */
+  remaining: string;
+  /** Average fill price */
+  averagePrice?: string;
+  /** Fee information */
+  fees: TradingFees;
+  /** Result timestamp */
+  timestamp: number;
+  /** Associated position (for perpetuals) */
+  position?: Position;
+  /** Margin used */
+  marginUsed?: string;
+  /** Liquidation price */
+  liquidationPrice?: string;
+  /** Unrealized P&L */
+  unrealizedPnL?: string;
+}
+
+/**
+ * Result of order cancellation
+ */
+interface CancelResult {
+  /** Whether cancellation was successful */
+  success: boolean;
+  /** Optional message */
+  message?: string;
+  /** Cancellation timestamp */
+  timestamp?: number;
+}
+
+/**
+ * Create trading API routes for the unified validator DEX
+ * Handles order placement, management, portfolio operations, and conversions
+ * @param orderBook - Decentralized order book implementation
+ * @param feeDistribution - Fee distribution engine for validator rewards
+ * @returns Express router with trading endpoints
+ * @example
+ * ```typescript
+ * const router = createTradingRoutes(orderBook, feeDistribution);
+ * app.use('/api/v1/trading', router);
+ * ```
+ */
 export function createTradingRoutes(
   orderBook: DecentralizedOrderBook,
   feeDistribution: FeeDistributionEngine
@@ -72,7 +185,7 @@ export function createTradingRoutes(
 
         logger.info('Order placed', { orderId: result.orderId, type: order.type, pair: order.pair });
 
-        res.status(201).json({
+        return res.status(201).json({
           success: true,
           orderId: result.orderId,
           status: result.status,
@@ -85,7 +198,7 @@ export function createTradingRoutes(
 
       } catch (error) {
         logger.error('Error placing order:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to place order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -102,9 +215,8 @@ export function createTradingRoutes(
     async (req: Request, res: Response) => {
       try {
         const { orderId } = req.params;
-        const userId = req.headers['x-user-id'] as string;
 
-        const order = await orderBook.getOrder(orderId);
+        const order = await orderBook.getOrder(orderId || '');
         
         if (!order) {
           return res.status(404).json({
@@ -112,11 +224,11 @@ export function createTradingRoutes(
           });
         }
 
-        res.json(order);
+        return res.json(order);
 
       } catch (error) {
         logger.error('Error getting order:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -135,7 +247,7 @@ export function createTradingRoutes(
         const { orderId } = req.params;
         const userId = req.headers['x-user-id'] as string;
 
-        const result = await orderBook.cancelOrder(orderId, userId);
+        const result = await orderBook.cancelOrder(orderId || '', userId || '');
 
         if (!result.success) {
           return res.status(400).json({
@@ -146,7 +258,7 @@ export function createTradingRoutes(
 
         logger.info('Order cancelled', { orderId, userId });
 
-        res.json({
+        return res.json({
           success: true,
           orderId,
           cancelledAt: result.timestamp
@@ -154,7 +266,7 @@ export function createTradingRoutes(
 
       } catch (error) {
         logger.error('Error cancelling order:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to cancel order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -177,15 +289,15 @@ export function createTradingRoutes(
       try {
         const userId = req.headers['x-user-id'] as string;
         const filters = {
-          pair: req.query.pair as string,
-          status: req.query.status as string,
-          limit: (req.query.limit as number) || 50,
-          offset: (req.query.offset as number) || 0
+          pair: req.query['pair'] as string,
+          status: req.query['status'] as string,
+          limit: parseInt(req.query['limit'] as string) || 50,
+          offset: parseInt(req.query['offset'] as string) || 0
         };
 
-        const orders = await orderBook.getUserOrders(userId);
+        const orders = await orderBook.getUserOrders(userId || '', filters);
 
-        res.json({
+        return res.json({
           orders,
           total: orders.length,
           limit: filters.limit,
@@ -194,7 +306,7 @@ export function createTradingRoutes(
 
       } catch (error) {
         logger.error('Error getting user orders:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get orders',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -210,9 +322,9 @@ export function createTradingRoutes(
     try {
       const userId = req.headers['x-user-id'] as string;
 
-      const portfolio = await orderBook.getPortfolio(userId);
+      const portfolio = await orderBook.getPortfolio(userId || '');
 
-      res.json({
+      return res.json({
         balances: portfolio.balances,
         positions: portfolio.positions,
         openOrders: portfolio.openOrders,
@@ -225,7 +337,7 @@ export function createTradingRoutes(
 
     } catch (error) {
       logger.error('Error getting portfolio:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get portfolio',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -248,16 +360,16 @@ export function createTradingRoutes(
       try {
         const userId = req.headers['x-user-id'] as string;
         const filters = {
-          pair: req.query.pair as string,
-          startTime: req.query.startTime as Date,
-          endTime: req.query.endTime as Date,
-          limit: (req.query.limit as number) || 50,
-          offset: (req.query.offset as number) || 0
+          pair: req.query['pair'] as string,
+          startTime: new Date(req.query['startTime'] as string),
+          endTime: new Date(req.query['endTime'] as string),
+          limit: parseInt(req.query['limit'] as string) || 50,
+          offset: parseInt(req.query['offset'] as string) || 0
         };
 
-        const trades = await orderBook.getUserTrades(userId, filters);
+        const trades = await orderBook.getUserTrades(userId || '', filters);
 
-        res.json({
+        return res.json({
           trades,
           total: trades.length,
           limit: filters.limit,
@@ -266,7 +378,7 @@ export function createTradingRoutes(
 
       } catch (error) {
         logger.error('Error getting trade history:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get trade history',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -282,9 +394,9 @@ export function createTradingRoutes(
     try {
       const userId = req.headers['x-user-id'] as string;
 
-      const feeInfo = await feeDistribution.getUserFeeInfo(userId);
+      const feeInfo = await feeDistribution.getUserFeeInfo(userId || '');
 
-      res.json({
+      return res.json({
         currentFees: {
           spotMaker: feeInfo.spotMaker,
           spotTaker: feeInfo.spotTaker,
@@ -300,7 +412,7 @@ export function createTradingRoutes(
 
     } catch (error) {
       logger.error('Error getting fee information:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get fee information',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -361,7 +473,7 @@ export function createTradingRoutes(
           leverage: perpetualOrder.leverage
         });
 
-        res.status(201).json({
+        return res.status(201).json({
           success: true,
           orderId: result.orderId,
           position: result.position,
@@ -373,7 +485,7 @@ export function createTradingRoutes(
 
       } catch (error) {
         logger.error('Error placing perpetual order:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to place perpetual order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -389,10 +501,10 @@ export function createTradingRoutes(
     try {
       const userId = req.headers['x-user-id'] as string;
 
-      const positions = await orderBook.getPerpetualPositions(userId);
+      const positions = await orderBook.getPerpetualPositions(userId || '');
 
-      res.json({
-        positions: positions.map(position => ({
+      return res.json({
+        positions: positions.map((position: Position) => ({
           contract: position.contract,
           side: position.side,
           size: position.size,
@@ -409,7 +521,7 @@ export function createTradingRoutes(
 
     } catch (error) {
       logger.error('Error getting perpetual positions:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get perpetual positions',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -432,31 +544,37 @@ export function createTradingRoutes(
         const userId = req.headers['x-user-id'] as string;
 
         const conversion = await orderBook.autoConvertToXOM(
-          userId,
+          userId || '',
           fromToken,
           amount,
           slippageTolerance
         );
 
         // Track conversion fees
-        await feeDistribution.recordConversionFees(conversion.fees);
+        await feeDistribution.recordConversionFees({
+          amount: conversion.fees,
+          asset: 'XOM',
+          type: 'taker',
+          orderId: conversion.id,
+          userId: userId || ''
+        });
 
         logger.info('Token conversion completed', {
           userId,
           fromToken,
           amount,
-          xomReceived: conversion.xomReceived,
-          conversionRate: conversion.rate
+          xomReceived: conversion.toAmount,
+          conversionRate: conversion.conversionRate
         });
 
-        res.json({
+        return res.json({
           success: true,
           conversionId: conversion.id,
           fromToken,
           fromAmount: amount,
           toToken: 'XOM',
-          toAmount: conversion.xomReceived,
-          conversionRate: conversion.rate,
+          toAmount: conversion.toAmount,
+          conversionRate: conversion.conversionRate,
           fees: conversion.fees,
           slippage: conversion.actualSlippage,
           timestamp: conversion.timestamp
@@ -464,7 +582,7 @@ export function createTradingRoutes(
 
       } catch (error) {
         logger.error('Error converting tokens:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to convert tokens',
           message: error instanceof Error ? error.message : 'Unknown error'
         });

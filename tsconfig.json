@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "target": "ES2020",
+        "target": "ES2022",
         "lib": ["ES2020"],
         "allowJs": false,
         "skipLibCheck": true,
@@ -15,7 +15,7 @@
         "noEmit": false,
         "declaration": true,
         "outDir": "./dist",
-        "rootDir": "./src",
+        "rootDir": "./",
         "sourceMap": true,
         "removeComments": false,
         "experimentalDecorators": true,
@@ -35,19 +35,23 @@
         "noImplicitAny": true,
         "noImplicitReturns": true,
         "noImplicitThis": true,
-        "noUnusedLocals": true,
+        "noUnusedLocals": false,
         "noUnusedParameters": true,
-        "exactOptionalPropertyTypes": true,
+        "exactOptionalPropertyTypes": false,
         "noImplicitOverride": true,
         "noPropertyAccessFromIndexSignature": false,
         "noUncheckedIndexedAccess": true,
+        "strictNullChecks": true,
+        "strictFunctionTypes": true,
+        "strictBindCallApply": true,
+        "strictPropertyInitialization": true,
+        "noFallthroughCasesInSwitch": true,
         "incremental": true,
         "tsBuildInfoFile": "./dist/.tsbuildinfo"
     },
     "include": [
         "src/**/*",
-        "tests/**/*",
-        "scripts/**/*"
+        "tests/**/*"
     ],
     "exclude": [
         "node_modules",

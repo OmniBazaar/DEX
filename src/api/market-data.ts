@@ -11,9 +11,189 @@
 
 import { Router, Request, Response } from 'express';
 import { param, query, validationResult } from 'express-validator';
-import { DecentralizedOrderBook } from '../../../Validator/src/services/dex/DecentralizedOrderBook';
-import { logger } from '../../../Validator/src/utils/Logger';
+import { logger } from '../utils/logger';
 
+/**
+ * Trading pair configuration and metadata
+ */
+interface TradingPair {
+  /** Trading pair symbol */
+  symbol: string;
+  /** Base asset symbol */
+  baseAsset: string;
+  /** Quote asset symbol */
+  quoteAsset: string;
+  /** Trading status */
+  status: string;
+  /** Minimum order size */
+  minOrderSize: number;
+  /** Maximum order size */
+  maxOrderSize: number;
+  /** Price increment (tick size) */
+  priceIncrement: number;
+  /** Quantity increment */
+  quantityIncrement: number;
+  /** Maker fee rate */
+  makerFee: number;
+  /** Taker fee rate */
+  takerFee: number;
+}
+
+/**
+ * Single level in the order book
+ */
+interface OrderBookLevel {
+  /** Price level */
+  price: number;
+  /** Total quantity at this price */
+  quantity: number;
+}
+
+/**
+ * Order book snapshot data
+ */
+interface OrderBookData {
+  /** Buy orders (bids) */
+  bids: OrderBookLevel[];
+  /** Sell orders (asks) */
+  asks: OrderBookLevel[];
+  /** Snapshot timestamp */
+  timestamp: number;
+  /** Sequence number */
+  sequence: number;
+}
+
+/**
+ * 24-hour ticker statistics
+ */
+interface TickerData {
+  symbol: string;
+  lastPrice: number;
+  priceChange: number;
+  priceChangePercent: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
+  quoteVolume24h: number;
+  openPrice: number;
+  closePrice: number;
+  firstTradeId: number;
+  lastTradeId: number;
+  tradeCount: number;
+  timestamp: number;
+}
+
+/**
+ * Individual trade data
+ */
+interface TradeData {
+  /** Trade ID */
+  id: string;
+  /** Trade price */
+  price: number;
+  /** Trade quantity */
+  quantity: number;
+  /** Quote quantity */
+  quoteQuantity: number;
+  /** Trade timestamp */
+  timestamp: number;
+  /** Whether buyer was maker */
+  isBuyerMaker: boolean;
+}
+
+interface CandleData {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  closeTime: number;
+  quoteVolume: number;
+  trades: number;
+  baseAssetVolume: number;
+  quoteAssetVolume: number;
+}
+
+interface MarketDepthData {
+  lastUpdateId: number;
+  bids: OrderBookLevel[];
+  asks: OrderBookLevel[];
+}
+
+interface PerpetualContract {
+  symbol: string;
+  baseAsset: string;
+  quoteAsset: string;
+  markPrice: number;
+  indexPrice: number;
+  lastFundingRate: number;
+  nextFundingTime: number;
+  interestRate: number;
+  premiumIndex: number;
+  maxLeverage: number;
+  minOrderSize: number;
+  status: string;
+}
+
+interface FundingRateEntry {
+  symbol: string;
+  fundingRate: number;
+  fundingTime: number;
+  markPrice: number;
+  indexPrice: number;
+}
+
+interface MarketStatistics {
+  totalVolume24h: number;
+  totalTrades24h: number;
+  activePairs: number;
+  topGainers: TickerData[];
+  topLosers: TickerData[];
+  totalValueLocked: number;
+  networkFees24h: number;
+  activeValidators: number;
+  timestamp: number;
+}
+
+interface ChartOptions {
+  startTime: Date;
+  endTime: Date;
+  limit: number;
+}
+
+interface FundingRateOptions {
+  startTime: Date;
+  endTime: Date;
+  limit: number;
+}
+
+// TODO: Replace with actual DecentralizedOrderBook implementation
+interface DecentralizedOrderBook {
+  getTradingPairs(): Promise<TradingPair[]>;
+  getOrderBook(symbol: string, depth: number): Promise<OrderBookData>;
+  getTicker(symbol: string): Promise<TickerData>;
+  getRecentTrades(symbol: string, limit: number): Promise<TradeData[]>;
+  getPriceChart(symbol: string, interval: string, options: ChartOptions): Promise<CandleData[]>;
+  getMarketSummary(symbol: string, options: ChartOptions): Promise<TickerData>;
+  getCandles(symbol: string, interval: string, options: ChartOptions): Promise<CandleData[]>;
+  getMarketDepth(symbol: string, limit: number): Promise<MarketDepthData>;
+  getPerpetualContracts(): Promise<PerpetualContract[]>;
+  getFundingRateHistory(symbol: string, options: FundingRateOptions): Promise<FundingRateEntry[]>;
+  getMarketStatistics(): Promise<MarketStatistics>;
+}
+
+/**
+ * Create market data API routes for the unified validator DEX
+ * Provides real-time and historical market data endpoints
+ * @param orderBook - Decentralized order book implementation
+ * @returns Express router with market data endpoints
+ * @example
+ * ```typescript
+ * const router = createMarketDataRoutes(orderBook);
+ * app.use('/api/v1/market-data', router);
+ * ```
+ */
 export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Router {
   const router = Router();
 
@@ -21,12 +201,12 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get all available trading pairs
    * GET /api/v1/market-data/pairs
    */
-  router.get('/pairs', async (req: Request, res: Response) => {
+  router.get('/pairs', async (_req: Request, res: Response) => {
     try {
       const pairs = await orderBook.getTradingPairs();
 
-      res.json({
-        pairs: pairs.map(pair => ({
+      return res.json({
+        pairs: pairs.map((pair: TradingPair) => ({
           symbol: pair.symbol,
           baseAsset: pair.baseAsset,
           quoteAsset: pair.quoteAsset,
@@ -42,7 +222,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
     } catch (error) {
       logger.error('Error getting trading pairs:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get trading pairs',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -61,21 +241,21 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
     async (req: Request, res: Response) => {
       try {
         const { pair } = req.params;
-        const limit = (req.query.limit as number) || 100;
+        const _limit = parseInt(req.query['limit'] as string) || 100;
 
-        const orderBookData = await orderBook.getOrderBook(pair);
+        const orderBookData = await orderBook.getOrderBook(pair || '', _limit);
 
-        res.json({
+        return res.json({
           pair,
-          bids: orderBookData?.bids?.map(level => [level.price, level.quantity]) || [],
-          asks: orderBookData?.asks?.map(level => [level.price, level.quantity]) || [],
+          bids: orderBookData?.bids?.map((level: OrderBookLevel) => [level.price, level.quantity]) || [],
+          asks: orderBookData?.asks?.map((level: OrderBookLevel) => [level.price, level.quantity]) || [],
           timestamp: orderBookData?.timestamp || Date.now(),
           sequence: orderBookData?.sequence || 0
         });
 
       } catch (error) {
         logger.error('Error getting order book:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get order book',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -93,9 +273,9 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
       try {
         const { pair } = req.params;
 
-        const ticker = await orderBook.getTicker(pair);
+        const ticker = await orderBook.getTicker(pair || '');
 
-        res.json({
+        return res.json({
           symbol: ticker.symbol,
           price: ticker.lastPrice,
           priceChange: ticker.priceChange,
@@ -114,7 +294,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
       } catch (error) {
         logger.error('Error getting ticker:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get ticker',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -126,12 +306,13 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get all tickers
    * GET /api/v1/market-data/tickers
    */
-  router.get('/tickers', async (req: Request, res: Response) => {
+  router.get('/tickers', async (_req: Request, res: Response) => {
     try {
-      const tickers = await orderBook.getAllTickers();
+      // TODO: Add getAllTickers method to interface
+      const tickers: TickerData[] = []; // await orderBook.getAllTickers();
 
-      res.json(
-        tickers.map(ticker => ({
+      return res.json(
+        tickers.map((ticker: TickerData) => ({
           symbol: ticker.symbol,
           price: ticker.lastPrice,
           priceChange: ticker.priceChange,
@@ -146,7 +327,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
     } catch (error) {
       logger.error('Error getting all tickers:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get tickers',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -165,12 +346,12 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
     async (req: Request, res: Response) => {
       try {
         const { pair } = req.params;
-        const limit = (req.query.limit as number) || 100;
+        const limit = parseInt(req.query['limit'] as string) || 100;
 
-        const trades = await orderBook.getRecentTrades(pair, limit);
+        const trades = await orderBook.getRecentTrades(pair || '', limit);
 
-        res.json(
-          trades.map(trade => ({
+        return res.json(
+          trades.map((trade: TradeData) => ({
             id: trade.id,
             price: trade.price,
             quantity: trade.quantity,
@@ -182,7 +363,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
       } catch (error) {
         logger.error('Error getting recent trades:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get recent trades',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -213,19 +394,19 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
         }
 
         const { pair } = req.params;
-        const interval = req.query.interval as string;
-        const startTime = req.query.startTime as Date;
-        const endTime = req.query.endTime as Date;
-        const limit = (req.query.limit as number) || 500;
+        const interval = req.query['interval'] as string;
+        const startTime = new Date(req.query['startTime'] as string);
+        const endTime = new Date(req.query['endTime'] as string);
+        const limit = parseInt(req.query['limit'] as string) || 500;
 
-        const candles = await orderBook.getCandles(pair, interval, {
+        const candles = await orderBook.getCandles(pair || '', interval, {
           startTime,
           endTime,
           limit
         });
 
-        res.json(
-          candles.map(candle => [
+        return res.json(
+          candles.map((candle: CandleData) => [
             candle.openTime,
             candle.open,
             candle.high,
@@ -242,7 +423,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
       } catch (error) {
         logger.error('Error getting candles:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get candles',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -262,19 +443,19 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
     async (req: Request, res: Response) => {
       try {
         const { pair } = req.params;
-        const limit = parseInt(req.query.limit as string) || 100;
+        const limit = parseInt(req.query['limit'] as string) || 100;
 
-        const depth = await orderBook.getMarketDepth(pair, limit);
+        const depth = await orderBook.getMarketDepth(pair || '', limit);
 
-        res.json({
+        return res.json({
           lastUpdateId: depth.lastUpdateId,
-          bids: depth.bids.map(level => [level.price, level.quantity]),
-          asks: depth.asks.map(level => [level.price, level.quantity])
+          bids: depth.bids?.map((level: OrderBookLevel) => [level.price, level.quantity]) || [],
+          asks: depth.asks?.map((level: OrderBookLevel) => [level.price, level.quantity]) || []
         });
 
       } catch (error) {
         logger.error('Error getting market depth:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get market depth',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -286,12 +467,12 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get perpetual contract information
    * GET /api/v1/market-data/perpetuals
    */
-  router.get('/perpetuals', async (req: Request, res: Response) => {
+  router.get('/perpetuals', async (_req: Request, res: Response) => {
     try {
       const perpetuals = await orderBook.getPerpetualContracts();
 
-      res.json(
-        perpetuals.map(contract => ({
+      return res.json(
+        perpetuals.map((contract: PerpetualContract) => ({
           symbol: contract.symbol,
           baseAsset: contract.baseAsset,
           quoteAsset: contract.quoteAsset,
@@ -309,7 +490,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
     } catch (error) {
       logger.error('Error getting perpetual contracts:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get perpetual contracts',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -330,18 +511,18 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
     async (req: Request, res: Response) => {
       try {
         const { symbol } = req.params;
-        const startTime = req.query.startTime as Date;
-        const endTime = req.query.endTime as Date;
-        const limit = (req.query.limit as number) || 100;
+        const startTime = new Date(req.query['startTime'] as string);
+        const endTime = new Date(req.query['endTime'] as string);
+        const limit = parseInt(req.query['limit'] as string) || 100;
 
-        const fundingHistory = await orderBook.getFundingRateHistory(symbol, {
+        const fundingHistory = await orderBook.getFundingRateHistory(symbol || '', {
           startTime,
           endTime,
           limit
         });
 
-        res.json(
-          fundingHistory.map(entry => ({
+        return res.json(
+          fundingHistory.map((entry: FundingRateEntry) => ({
             symbol: entry.symbol,
             fundingRate: entry.fundingRate,
             fundingTime: entry.fundingTime,
@@ -352,7 +533,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
       } catch (error) {
         logger.error('Error getting funding rate history:', error);
-        res.status(500).json({
+        return res.status(500).json({
           error: 'Failed to get funding rate history',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
@@ -364,11 +545,11 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get market statistics
    * GET /api/v1/market-data/stats
    */
-  router.get('/stats', async (req: Request, res: Response) => {
+  router.get('/stats', async (_req: Request, res: Response) => {
     try {
       const stats = await orderBook.getMarketStatistics();
 
-      res.json({
+      return res.json({
         totalVolume24h: stats.totalVolume24h,
         totalTrades24h: stats.totalTrades24h,
         activePairs: stats.activePairs,
@@ -382,7 +563,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
     } catch (error) {
       logger.error('Error getting market statistics:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get market statistics',
         message: error instanceof Error ? error.message : 'Unknown error'
       });

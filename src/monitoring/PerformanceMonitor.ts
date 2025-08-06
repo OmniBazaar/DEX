@@ -14,7 +14,7 @@ export interface PerformanceMetrics {
   latency: number; // milliseconds
   success: boolean;
   timestamp: number;
-  metadata?: any;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AggregatedMetrics {
@@ -30,11 +30,24 @@ export interface AggregatedMetrics {
   throughput: number; // operations per second
 }
 
+export interface PerformanceReport {
+  timestamp: number;
+  summary: {
+    totalOperations: number;
+    avgLatency: number;
+    successRate: number;
+    throughput: number;
+  };
+  byStorageType: Record<string, AggregatedMetrics[]>;
+  byOperation: Record<string, AggregatedMetrics>;
+  recommendations: string[];
+}
+
 export class PerformanceMonitor extends EventEmitter {
   private metrics: PerformanceMetrics[] = [];
   private maxMetricsSize = 10000;
   private aggregationInterval = 60000; // 1 minute
-  private aggregationTimer?: NodeJS.Timer;
+  private aggregationTimer?: ReturnType<typeof setInterval>;
 
   constructor() {
     super();
@@ -117,13 +130,13 @@ export class PerformanceMonitor extends EventEmitter {
       const latencies = metrics.map(m => m.latency).sort((a, b) => a - b);
       const successCount = metrics.filter(m => m.success).length;
       
-      const timeSpan = (metrics[metrics.length - 1].timestamp - metrics[0].timestamp) / 1000 || 1;
+      const timeSpan = (metrics[metrics.length - 1]!.timestamp - metrics[0]!.timestamp) / 1000 || 1;
       
       results.push({
         operation: op,
         count: metrics.length,
         avgLatency: latencies.reduce((a, b) => a + b, 0) / latencies.length,
-        minLatency: latencies[0] || 0,
+        minLatency: latencies[0] ?? 0,
         maxLatency: latencies[latencies.length - 1] || 0,
         p50Latency: this.percentile(latencies, 0.5),
         p95Latency: this.percentile(latencies, 0.95),
@@ -184,7 +197,7 @@ export class PerformanceMonitor extends EventEmitter {
   private percentile(sortedArray: number[], p: number): number {
     if (sortedArray.length === 0) return 0;
     const index = Math.ceil(sortedArray.length * p) - 1;
-    return sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))];
+    return sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))]!;
   }
 
   /**
@@ -212,7 +225,7 @@ export class PerformanceMonitor extends EventEmitter {
   /**
    * Get performance report
    */
-  getPerformanceReport(): any {
+  getPerformanceReport(): PerformanceReport {
     const allStats = this.getStats();
     const storageStats = new Map<string, AggregatedMetrics[]>();
     
@@ -225,13 +238,15 @@ export class PerformanceMonitor extends EventEmitter {
     }
     
     return {
+      timestamp: Date.now(),
       summary: {
         totalOperations: this.metrics.length,
-        timeWindow: this.metrics.length > 0 ? 
-          (Date.now() - this.metrics[0].timestamp) / 1000 : 0,
-        operations: allStats
+        avgLatency: allStats.reduce((sum, stat) => sum + stat.avgLatency, 0) / allStats.length || 0,
+        successRate: allStats.reduce((sum, stat) => sum + stat.successRate, 0) / allStats.length || 0,
+        throughput: allStats.reduce((sum, stat) => sum + stat.throughput, 0)
       },
-      storageTypes: Object.fromEntries(storageStats),
+      byStorageType: Object.fromEntries(storageStats),
+      byOperation: Object.fromEntries(allStats.map(stat => [stat.operation, stat])),
       recommendations: this.getRecommendations(allStats)
     };
   }

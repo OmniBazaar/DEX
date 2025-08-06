@@ -108,7 +108,7 @@ export interface ServiceHealth {
   status: 'healthy' | 'degraded' | 'unhealthy';
   uptime: number;
   lastCheck: number;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 export interface ResourceUsage {
@@ -377,11 +377,11 @@ export interface ValidatorEvent {
   type: 'validator-joined' | 'validator-left' | 'consensus-reached' | 'block-produced' | 'fees-distributed';
   validatorId: string;
   timestamp: number;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 // API Response Types
-export interface APIResponse<T = any> {
+export interface APIResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;

@@ -6,13 +6,35 @@
  */
 
 import { Server as SocketIOServer, Socket } from 'socket.io';
-import { validatorDEX, type OrderBook, type Trade, type Order } from '../services/ValidatorDEXService';
+import { validatorDEX, type OrderBook, type Trade } from '../services/ValidatorDEXService';
 import { logger } from '../utils/logger';
 
 export interface WebSocketRoom {
   type: 'orderbook' | 'trades' | 'orders';
   pair?: string;
   userId?: string;
+}
+
+export interface OrderData {
+  type: 'BUY' | 'SELL';
+  tokenPair: string;
+  price: string;
+  amount: string;
+  orderType: 'MARKET' | 'LIMIT';
+  maker?: string;
+}
+
+export interface MarketUpdateData {
+  price?: string;
+  volume?: string;
+  orderBook?: OrderBook;
+  trades?: Trade[];
+  ticker?: {
+    symbol: string;
+    price: string;
+    change: string;
+    volume: string;
+  };
 }
 
 export class ValidatorWebSocketService {
@@ -103,9 +125,12 @@ export class ValidatorWebSocketService {
       });
       
       // Handle order placement through WebSocket
-      socket.on('place:order', async (orderData: any, callback: Function) => {
+      socket.on('place:order', async (orderData: OrderData, callback: (result: unknown) => void) => {
         try {
-          const order = await validatorDEX.placeOrder(orderData);
+          const order = await validatorDEX.placeOrder({
+            ...orderData,
+            maker: orderData.maker || 'unknown'
+          });
           
           // Notify user of order placement
           const userRoom = `orders:${order.maker}`;
@@ -236,7 +261,7 @@ export class ValidatorWebSocketService {
   /**
    * Broadcast market update to all clients
    */
-  public broadcastMarketUpdate(pair: string, data: any): void {
+  public broadcastMarketUpdate(pair: string, data: MarketUpdateData): void {
     this.io.emit('market:update', {
       pair,
       data,

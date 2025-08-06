@@ -13,40 +13,81 @@ import { EventEmitter } from 'events';
 import { createClient, RedisClientType } from 'redis';
 import { Pool as PostgreSQLPool } from 'pg';
 import { create as createIPFS, IPFSHTTPClient } from 'ipfs-http-client';
-import { UnifiedOrder, OrderBook, Trade, Position } from '../types/config';
+import { UnifiedOrder, OrderBook } from '../types/config';
 import { logger } from '../utils/logger';
-import { OMNICOIN_DECIMALS, PRECISION, toWei, fromWei } from '../constants/precision';
+import { toWei, fromWei } from '../constants/precision';
 
+/**
+ * Configuration for hybrid storage system
+ */
 export interface StorageConfig {
+  /** Redis configuration for hot storage */
   redis: {
+    /** Redis host */
     host: string;
+    /** Redis port */
     port: number;
+    /** Redis password */
     password?: string;
+    /** Redis database number */
     db?: number;
   };
+  /** PostgreSQL configuration for warm storage */
   postgresql: {
+    /** PostgreSQL host */
     host: string;
+    /** PostgreSQL port */
     port: number;
+    /** Database name */
     database: string;
+    /** Database user */
     user: string;
+    /** Database password */
     password: string;
-    max?: number; // connection pool size
+    /** Connection pool size */
+    max?: number;
   };
+  /** IPFS configuration for cold storage */
   ipfs: {
+    /** IPFS host */
     host: string;
+    /** IPFS port */
     port: number;
+    /** Protocol (http/https) */
     protocol: string;
   };
+  /** Archival configuration */
   archival: {
-    threshold: number; // days before moving to cold storage
-    batchSize: number; // number of records to archive at once
+    /** Days before moving to cold storage */
+    threshold: number;
+    /** Number of records to archive at once */
+    batchSize: number;
   };
 }
 
+/**
+ * Storage tier definitions
+ */
 export interface StorageTier {
+  /** Hot storage (in-memory or Redis) */
   hot: 'memory' | 'redis';
+  /** Warm storage (PostgreSQL) */
   warm: 'postgresql';
+  /** Cold storage (IPFS) */
   cold: 'ipfs';
+}
+
+export interface StorageStats {
+  hot: {
+    inMemory: number;
+    redis: number;
+  };
+  warm: {
+    postgresql: number;
+  };
+  cold: {
+    ipfs: number;
+  };
 }
 
 export class HybridDEXStorage extends EventEmitter {
@@ -64,7 +105,7 @@ export class HybridDEXStorage extends EventEmitter {
   private ipfs?: IPFSHTTPClient;
   
   // Synchronization
-  private syncInterval?: NodeJS.Timer;
+  private syncInterval?: ReturnType<typeof setInterval>;
   private isInitialized = false;
 
   constructor(config: StorageConfig) {
@@ -112,11 +153,11 @@ export class HybridDEXStorage extends EventEmitter {
         host: this.config.redis.host,
         port: this.config.redis.port
       },
-      password: this.config.redis.password,
-      database: this.config.redis.db
+      ...(this.config.redis.password ? { password: this.config.redis.password } : {}),
+      ...(this.config.redis.db ? { database: this.config.redis.db } : {})
     });
 
-    this.redis.on('error', (err) => {
+    this.redis.on('error', (err: Error) => {
       logger.error('Redis error:', err);
       this.emit('error', { tier: 'hot', error: err });
     });
@@ -377,12 +418,12 @@ export class HybridDEXStorage extends EventEmitter {
 
       const orderBook: OrderBook = {
         pair,
-        bids: bids.map(b => ({
+        bids: bids.map((b: { value: string; score: number }) => ({
           price: b.score.toString(),
           quantity: '0', // Will be aggregated
           orders: 1
         })),
-        asks: asks.map(a => ({
+        asks: asks.map((a: { value: string; score: number }) => ({
           price: a.score.toString(),
           quantity: '0',
           orders: 1
@@ -434,16 +475,16 @@ export class HybridDEXStorage extends EventEmitter {
     const result = await this.postgresql.query(query, [pair, depth]);
     
     const bids = result.rows
-      .filter(r => r.side === 'BUY')
-      .map(r => ({
+      .filter((r: { side: string; price: string; quantity: string; order_count: string }) => r.side === 'BUY')
+      .map((r: { side: string; price: string; quantity: string; order_count: string }) => ({
         price: fromWei(r.price),
         quantity: fromWei(r.quantity),
         orders: parseInt(r.order_count)
       }));
       
     const asks = result.rows
-      .filter(r => r.side === 'SELL')
-      .map(r => ({
+      .filter((r: { side: string; price: string; quantity: string; order_count: string }) => r.side === 'SELL')
+      .map((r: { side: string; price: string; quantity: string; order_count: string }) => ({
         price: fromWei(r.price),
         quantity: fromWei(r.quantity),
         orders: parseInt(r.order_count)
@@ -588,7 +629,7 @@ export class HybridDEXStorage extends EventEmitter {
   /**
    * Get storage statistics
    */
-  async getStats(): Promise<any> {
+  async getStats(): Promise<StorageStats> {
     return {
       hot: {
         inMemory: this.activeOrders.size,
@@ -599,7 +640,7 @@ export class HybridDEXStorage extends EventEmitter {
           (await this.postgresql.query('SELECT COUNT(*) FROM orders')).rows[0].count : 0
       },
       cold: {
-        ipfs: 'Connected'
+        ipfs: this.ipfs ? 1 : 0
       }
     };
   }

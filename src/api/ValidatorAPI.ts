@@ -5,7 +5,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { validatorDEX, type Order, type OrderBook, type Trade, type MarketData } from '../services/ValidatorDEXService';
+import { validatorDEX } from '../services/ValidatorDEXService';
 import { logger } from '../utils/logger';
 
 export interface AuthenticatedRequest extends Request {
@@ -15,6 +15,11 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
+interface APIError {
+  status?: number;
+  message?: string;
+}
+
 /**
  * Create DEX API routes
  */
@@ -22,7 +27,7 @@ export function createValidatorDEXRoutes(): Router {
   const router = Router();
   
   // Middleware to ensure service is initialized
-  router.use(async (req: Request, res: Response, next: NextFunction) => {
+  router.use(async (_req: Request, res: Response, next: NextFunction) => {
     try {
       // Initialize service if needed
       if (!validatorDEX['isInitialized']) {
@@ -41,7 +46,7 @@ export function createValidatorDEXRoutes(): Router {
   /**
    * Get all trading pairs
    */
-  router.get('/pairs', (req: Request, res: Response) => {
+  router.get('/pairs', (_req: Request, res: Response) => {
     try {
       const pairs = validatorDEX.getTradingPairs();
       res.json({
@@ -59,9 +64,9 @@ export function createValidatorDEXRoutes(): Router {
   router.get('/orderbook/:pair', async (req: Request, res: Response) => {
     try {
       const { pair } = req.params;
-      const depth = parseInt(req.query.depth as string) || 20;
+      const depth = parseInt(req.query['depth'] as string) || 20;
       
-      const orderBook = await validatorDEX.getOrderBook(pair, depth);
+      const orderBook = await validatorDEX.getOrderBook(pair || '', depth);
       
       res.json({
         success: true,
@@ -95,12 +100,12 @@ export function createValidatorDEXRoutes(): Router {
         maker
       });
       
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: order
       });
     } catch (error) {
-      handleError(res, error, 'Failed to place order');
+      return handleError(res, error, 'Failed to place order');
     }
   });
   
@@ -111,7 +116,7 @@ export function createValidatorDEXRoutes(): Router {
     try {
       const { orderId } = req.params;
       
-      const order = await validatorDEX.getOrder(orderId);
+      const order = await validatorDEX.getOrder(orderId || '');
       
       if (!order) {
         return res.status(404).json({
@@ -120,12 +125,12 @@ export function createValidatorDEXRoutes(): Router {
         });
       }
       
-      res.json({
+      return res.json({
         success: true,
         data: order
       });
     } catch (error) {
-      handleError(res, error, 'Failed to get order');
+      return handleError(res, error, 'Failed to get order');
     }
   });
   
@@ -134,8 +139,8 @@ export function createValidatorDEXRoutes(): Router {
    */
   router.get('/orders', async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const maker = req.user?.address || req.query.maker as string;
-      const tokenPair = req.query.pair as string;
+      const maker = req.user?.address || req.query['maker'] as string;
+      const tokenPair = req.query['pair'] as string;
       
       if (!maker) {
         return res.status(401).json({
@@ -146,12 +151,12 @@ export function createValidatorDEXRoutes(): Router {
       
       const orders = await validatorDEX.getUserOrders(maker, tokenPair);
       
-      res.json({
+      return res.json({
         success: true,
         data: orders
       });
     } catch (error) {
-      handleError(res, error, 'Failed to get user orders');
+      return handleError(res, error, 'Failed to get user orders');
     }
   });
   
@@ -170,14 +175,14 @@ export function createValidatorDEXRoutes(): Router {
         });
       }
       
-      const cancelled = await validatorDEX.cancelOrder(orderId, maker);
+      const cancelled = await validatorDEX.cancelOrder(orderId || '', maker || '');
       
-      res.json({
+      return res.json({
         success: true,
         data: { cancelled }
       });
     } catch (error) {
-      handleError(res, error, 'Failed to cancel order');
+      return handleError(res, error, 'Failed to cancel order');
     }
   });
   
@@ -187,9 +192,9 @@ export function createValidatorDEXRoutes(): Router {
   router.get('/trades/:pair', async (req: Request, res: Response) => {
     try {
       const { pair } = req.params;
-      const limit = parseInt(req.query.limit as string) || 50;
+      const limit = parseInt(req.query['limit'] as string) || 50;
       
-      const trades = await validatorDEX.getRecentTrades(pair, limit);
+      const trades = await validatorDEX.getRecentTrades(pair || '', limit);
       
       res.json({
         success: true,
@@ -207,7 +212,7 @@ export function createValidatorDEXRoutes(): Router {
     try {
       const { pair } = req.params;
       
-      const marketData = await validatorDEX.getMarketData(pair);
+      const marketData = await validatorDEX.getMarketData(pair || '');
       
       res.json({
         success: true,
@@ -234,23 +239,23 @@ export function createValidatorDEXRoutes(): Router {
       
       const fees = validatorDEX.calculateFees(amount, isMaker);
       
-      res.json({
+      return res.json({
         success: true,
         data: fees
       });
     } catch (error) {
-      handleError(res, error, 'Failed to calculate fees');
+      return handleError(res, error, 'Failed to calculate fees');
     }
   });
   
   /**
    * WebSocket subscription info
    */
-  router.get('/ws/info', (req: Request, res: Response) => {
+  router.get('/ws/info', (_req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        endpoint: process.env.VALIDATOR_WS_ENDPOINT || 'ws://localhost:4000/graphql',
+        endpoint: process.env['VALIDATOR_WS_ENDPOINT'] || 'ws://localhost:4000/graphql',
         subscriptions: [
           'orderbook', // Order book updates
           'trades',    // Trade execution updates
@@ -266,13 +271,14 @@ export function createValidatorDEXRoutes(): Router {
 /**
  * Error handler helper
  */
-function handleError(res: Response, error: any, message: string): void {
+function handleError(res: Response, error: unknown, message: string): Response {
   logger.error(message, error);
   
-  const statusCode = error.status || 500;
+  const apiError = error as APIError;
+  const statusCode = apiError?.status || 500;
   const errorMessage = error instanceof Error ? error.message : 'Unknown error';
   
-  res.status(statusCode).json({
+  return res.status(statusCode).json({
     success: false,
     error: message,
     message: errorMessage

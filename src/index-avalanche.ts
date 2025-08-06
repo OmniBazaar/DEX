@@ -34,7 +34,7 @@ dotenv.config();
  */
 class DEXServer {
   private app: express.Application;
-  private server: any;
+  private server: ReturnType<typeof createServer>;
   private io: SocketIOServer;
   private wsService: ValidatorWebSocketService;
   private config: {
@@ -152,7 +152,7 @@ class DEXServer {
     this.app.get('/health', async (_req: Request, res: Response) => {
       try {
         // Check validator connection
-        const orderBook = await validatorDEX.getOrderBook('XOM/USDC', 1);
+        await validatorDEX.getOrderBook('XOM/USDC', 1);
         
         res.json({
           status: 'healthy',
@@ -209,9 +209,9 @@ class DEXServer {
     });
 
     // Error handling middleware
-    this.app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
+    this.app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => {
       logger.error('API Error:', error);
-      res.status(error.status || 500).json({
+      res.status((error as {status?: number}).status || 500).json({
         error: error.message || 'Internal Server Error',
         timestamp: new Date().toISOString()
       });

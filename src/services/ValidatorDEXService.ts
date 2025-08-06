@@ -9,19 +9,31 @@ import {
   AvalancheValidatorClient, 
   createAvalancheValidatorClient,
   type AvalancheValidatorClientConfig
-} from '../../../Validator/src/client';
+} from '../client';
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger';
+import type { UnifiedOrder as _UnifiedOrder } from '../types/config';
 
+/**
+ * Configuration for ValidatorDEXService
+ */
 export interface ValidatorDEXConfig extends AvalancheValidatorClientConfig {
+  /** Network identifier */
   networkId: string;
+  /** Supported trading pairs */
   tradingPairs: string[];
+  /** Fee structure */
   feeStructure: {
+    /** Maker fee rate */
     maker: number;
+    /** Taker fee rate */
     taker: number;
   };
 }
 
+/**
+ * Order information from validator
+ */
 export interface Order {
   orderId: string;
   type: 'BUY' | 'SELL';
@@ -34,6 +46,9 @@ export interface Order {
   timestamp: number;
 }
 
+/**
+ * Order book data from validator
+ */
 export interface OrderBook {
   tokenPair: string;
   bids: OrderLevel[];
@@ -43,6 +58,9 @@ export interface OrderBook {
   lastUpdate: number;
 }
 
+/**
+ * Single price level in order book
+ */
 export interface OrderLevel {
   price: string;
   amount: string;
@@ -50,6 +68,9 @@ export interface OrderLevel {
   orderCount: number;
 }
 
+/**
+ * Trade execution data
+ */
 export interface Trade {
   tradeId: string;
   tokenPair: string;
@@ -63,6 +84,9 @@ export interface Trade {
   timestamp: number;
 }
 
+/**
+ * Market data and statistics
+ */
 export interface MarketData {
   tokenPair: string;
   lastPrice: string;
@@ -73,26 +97,46 @@ export interface MarketData {
   priceChangePercent24h: string;
 }
 
+/**
+ * DEX service for Avalanche validator integration
+ * Manages order execution, market data, and client connections
+ * @example
+ * ```typescript
+ * const service = new ValidatorDEXService(config);
+ * await service.initialize();
+ * const order = await service.placeOrder(orderData);
+ * ```
+ */
 export class ValidatorDEXService {
+  /** Avalanche validator client */
   private client: AvalancheValidatorClient;
+  /** Service configuration */
   private config: ValidatorDEXConfig;
+  /** Initialization status */
   private isInitialized = false;
+  /** Order cache for performance */
   private orderCache: Map<string, Order> = new Map();
+  /** Order book cache */
   private orderBookCache: Map<string, OrderBook> = new Map();
   
+  /**
+   * Creates a new ValidatorDEXService instance
+   * @param config - Service configuration
+   */
   constructor(config: ValidatorDEXConfig) {
     this.config = config;
     this.client = createAvalancheValidatorClient({
       validatorEndpoint: config.validatorEndpoint,
-      wsEndpoint: config.wsEndpoint,
-      apiKey: config.apiKey,
-      timeout: config.timeout,
-      retryAttempts: config.retryAttempts
+      ...(config.wsEndpoint ? { wsEndpoint: config.wsEndpoint } : {}),
+      ...(config.apiKey ? { apiKey: config.apiKey } : {}),
+      ...(config.timeout ? { timeout: config.timeout } : {}),
+      ...(config.retryAttempts ? { retryAttempts: config.retryAttempts } : {})
     });
   }
   
   /**
-   * Initialize the DEX service
+   * Initialize the DEX service and establish validator connection
+   * @throws {Error} If validator health check fails
    */
   async initialize(): Promise<void> {
     try {
@@ -252,8 +296,18 @@ export class ValidatorDEXService {
       
       const orderBook: OrderBook = {
         tokenPair,
-        bids: orderBookData.bids,
-        asks: orderBookData.asks,
+        bids: orderBookData.bids.map(bid => ({
+          price: bid.price,
+          amount: bid.quantity,
+          total: (parseFloat(bid.price) * parseFloat(bid.quantity)).toString(),
+          orderCount: 1
+        })),
+        asks: orderBookData.asks.map(ask => ({
+          price: ask.price,
+          amount: ask.quantity,
+          total: (parseFloat(ask.price) * parseFloat(ask.quantity)).toString(),
+          orderCount: 1
+        })),
         spread: orderBookData.spread,
         midPrice: orderBookData.midPrice,
         lastUpdate: Date.now()
@@ -272,17 +326,12 @@ export class ValidatorDEXService {
   /**
    * Get recent trades
    */
-  async getRecentTrades(tokenPair: string, limit: number = 50): Promise<Trade[]> {
+  async getRecentTrades(_tokenPair: string, _limit: number = 50): Promise<Trade[]> {
     this.ensureInitialized();
     
-    try {
-      // TODO: Implement when trade history query is available
-      // For now, return empty array
-      return [];
-    } catch (error) {
-      logger.error('Failed to get recent trades:', error);
-      throw error;
-    }
+    // TODO: Implement when trade history query is available
+    // For now, return empty array
+    return [];
   }
   
   /**
@@ -343,8 +392,8 @@ export class ValidatorDEXService {
    * Subscribe to trades
    */
   subscribeToTrades(
-    tokenPair: string,
-    callback: (trade: Trade) => void
+    _tokenPair: string,
+    _callback: (trade: Trade) => void
   ): () => void {
     this.ensureInitialized();
     
@@ -388,26 +437,32 @@ export class ValidatorDEXService {
   /**
    * Validate order parameters
    */
-  private validateOrder(order: any): void {
+  private validateOrder(order: {
+    type?: string;
+    pair?: string;
+    price?: string;
+    quantity?: string;
+    userId?: string;
+  }): void {
     if (!order.type || !['BUY', 'SELL'].includes(order.type)) {
       throw new Error('Invalid order type');
     }
     
-    if (!this.config.tradingPairs.includes(order.tokenPair)) {
+    if (!this.config.tradingPairs.includes(order.pair || '')) {
       throw new Error('Invalid trading pair');
     }
     
-    const price = parseFloat(order.price);
+    const price = parseFloat(order.price || '0');
     if (isNaN(price) || price <= 0) {
       throw new Error('Invalid price');
     }
     
-    const amount = parseFloat(order.amount);
+    const amount = parseFloat(order.quantity || '0');
     if (isNaN(amount) || amount <= 0) {
       throw new Error('Invalid amount');
     }
     
-    if (!ethers.isAddress(order.maker)) {
+    if (!order.userId || !ethers.isAddress(order.userId)) {
       throw new Error('Invalid maker address');
     }
   }
@@ -437,14 +492,14 @@ export class ValidatorDEXService {
 
 // Export singleton instance
 export const validatorDEX = new ValidatorDEXService({
-  validatorEndpoint: process.env.VALIDATOR_ENDPOINT || 'http://localhost:4000',
-  wsEndpoint: process.env.VALIDATOR_WS_ENDPOINT || 'ws://localhost:4000/graphql',
-  apiKey: process.env.VALIDATOR_API_KEY,
-  networkId: process.env.NETWORK_ID || 'omnibazaar-mainnet',
-  tradingPairs: (process.env.TRADING_PAIRS || 'XOM/USDC,XOM/ETH,XOM/BTC').split(','),
+  validatorEndpoint: process.env['VALIDATOR_ENDPOINT'] || 'http://localhost:4000',
+  wsEndpoint: process.env['VALIDATOR_WS_ENDPOINT'] || 'ws://localhost:4000/graphql',
+  apiKey: process.env['VALIDATOR_API_KEY'],
+  networkId: process.env['NETWORK_ID'] || 'omnibazaar-mainnet',
+  tradingPairs: (process.env['TRADING_PAIRS'] || 'XOM/USDC,XOM/ETH,XOM/BTC').split(','),
   feeStructure: {
-    maker: parseFloat(process.env.MAKER_FEE || '0.001'), // 0.1%
-    taker: parseFloat(process.env.TAKER_FEE || '0.002')  // 0.2%
+    maker: parseFloat(process.env['MAKER_FEE'] || '0.001'), // 0.1%
+    taker: parseFloat(process.env['TAKER_FEE'] || '0.002')  // 0.2%
   },
   timeout: 30000,
   retryAttempts: 3

@@ -23,13 +23,13 @@ expect.extend({
 // Global test configuration
 beforeAll(() => {
   // Set test environment variables
-  process.env.NODE_ENV = 'test';
-  process.env.VALIDATOR_ENDPOINT = 'localhost';
-  process.env.POSTGRES_HOST = 'localhost';
-  process.env.POSTGRES_PORT = '5432';
-  process.env.POSTGRES_DB = 'omnibazaar_test';
-  process.env.REDIS_HOST = 'localhost';
-  process.env.REDIS_PORT = '6379';
+  process.env['NODE_ENV'] = 'test';
+  process.env['VALIDATOR_ENDPOINT'] = 'localhost';
+  process.env['POSTGRES_HOST'] = 'localhost';
+  process.env['POSTGRES_PORT'] = '5432';
+  process.env['POSTGRES_DB'] = 'omnibazaar_test';
+  process.env['REDIS_HOST'] = 'localhost';
+  process.env['REDIS_PORT'] = '6379';
 });
 
 afterAll(() => {
@@ -56,16 +56,8 @@ jest.mock('socket.io', () => ({
 // Suppress console.log during tests (except errors)
 const originalLog = console.log;
 console.log = (...args) => {
-  if (process.env.JEST_VERBOSE === 'true') {
+  if (process.env['JEST_VERBOSE'] === 'true') {
     originalLog(...args);
   }
 };
 
-// Type declarations for custom matchers
-declare global {
-  namespace jest {
-    interface Matchers<R> {
-      toBeValidOrderId(): R;
-    }
-  }
-}

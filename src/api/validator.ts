@@ -8,8 +8,65 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { UnifiedValidatorNode } from '../../../Validator/src/UnifiedValidatorNode';
-import { logger } from '../../../Validator/src/utils/Logger';
+import { logger } from '../utils/logger';
+
+interface ValidatorHealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  uptime: number;
+  version: string;
+  currentBlock: number;
+  syncStatus: 'synced' | 'syncing' | 'behind';
+  lastError?: string;
+}
+
+interface ResourceUsage {
+  cpu: {
+    usage: number;
+    cores: number;
+  };
+  memory: {
+    used: number;
+    total: number;
+    usage: number;
+  };
+  disk: {
+    used: number;
+    total: number;
+    usage: number;
+  };
+  network: {
+    bytesIn: number;
+    bytesOut: number;
+    connections: number;
+  };
+}
+
+interface NetworkInfo {
+  chainId: string;
+  networkName: string;
+  nodeId: string;
+  totalPeers: number;
+  blockHeight: number;
+  validatorCount: number;
+  consensusStatus: string;
+}
+
+interface ValidatorPeer {
+  id: string;
+  address: string;
+  isValidator: boolean;
+  lastSeen: number;
+  blockHeight: number;
+  status: 'connected' | 'disconnected' | 'syncing';
+}
+
+// TODO: Replace with actual UnifiedValidatorNode implementation
+interface UnifiedValidatorNode {
+  getHealthStatus(): Promise<ValidatorHealthStatus>;
+  getResourceUsage(): Promise<ResourceUsage>;
+  getNetworkInfo(): Promise<NetworkInfo>;
+  getPeers(): Promise<ValidatorPeer[]>;
+}
 
 export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Router {
   const router = Router();
@@ -21,10 +78,10 @@ export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Rout
   router.get('/status', async (_req: Request, res: Response) => {
     try {
       const status = await validatorNode.getHealthStatus();
-      res.json(status);
+      return res.json(status);
     } catch (error) {
       logger.error('Error getting validator status:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get validator status',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -38,10 +95,10 @@ export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Rout
   router.get('/resources', async (_req: Request, res: Response) => {
     try {
       const resources = await validatorNode.getResourceUsage();
-      res.json(resources);
+      return res.json(resources);
     } catch (error) {
       logger.error('Error getting resource usage:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get resource usage',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -55,10 +112,10 @@ export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Rout
   router.get('/network', async (_req: Request, res: Response) => {
     try {
       const networkInfo = await validatorNode.getNetworkInfo();
-      res.json(networkInfo);
+      return res.json(networkInfo);
     } catch (error) {
       logger.error('Error getting network information:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get network information',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -72,10 +129,10 @@ export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Rout
   router.get('/peers', async (_req: Request, res: Response) => {
     try {
       const peers = await validatorNode.getPeers();
-      res.json({ peers });
+      return res.json({ peers });
     } catch (error) {
       logger.error('Error getting validator peers:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get validator peers',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -89,10 +146,10 @@ export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Rout
   router.get('/health', async (_req: Request, res: Response) => {
     try {
       const health = await validatorNode.getHealthStatus();
-      res.json(health);
+      return res.json(health);
     } catch (error) {
       logger.error('Error getting validator health:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to get validator health',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
