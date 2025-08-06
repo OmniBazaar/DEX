@@ -34,6 +34,8 @@ import {
 } from '../../constants/precision';
 import { HybridDEXStorage } from '../../storage/HybridDEXStorage';
 import { getStorageConfig } from '../../config/storage.config';
+import { PrivacyDEXService } from '../../services/PrivacyDEXService';
+import { ethers } from 'ethers';
 
 /**
  * Perpetual futures contract configuration
@@ -223,6 +225,8 @@ export class DecentralizedOrderBook extends EventEmitter {
   private storage: IPFSStorageNetwork;
   /** Hybrid storage for performance optimization */
   private hybridStorage?: HybridDEXStorage;
+  /** Privacy-enhanced DEX service for pXOM trading */
+  private privacyService?: PrivacyDEXService;
   /** Initialization status */
   private isInitialized = false;
   
@@ -260,9 +264,13 @@ export class DecentralizedOrderBook extends EventEmitter {
     this.config = config;
     this.storage = storage;
     
+    // Initialize privacy service if provider is available
+    this.initializePrivacyService();
+    
     logger.info('DecentralizedOrderBook created', {
       pairs: config.tradingPairs.length,
-      feeStructure: config.feeStructure
+      feeStructure: config.feeStructure,
+      privacyEnabled: !!this.privacyService
     });
   }
 
@@ -282,8 +290,13 @@ export class DecentralizedOrderBook extends EventEmitter {
       // Initialize hybrid storage
       await this.initializeHybridStorage();
       
-      // Initialize trading pairs
+      // Initialize trading pairs (including pXOM pairs)
       await this.initializeTradingPairs();
+      
+      // Initialize privacy trading pairs if service is available
+      if (this.privacyService) {
+        await this.initializePrivacyPairs();
+      }
       
       // Initialize perpetual contracts
       await this.initializePerpetualContracts();
@@ -302,6 +315,7 @@ export class DecentralizedOrderBook extends EventEmitter {
       logger.info('✅ Decentralized Order Book initialized');
       logger.info(`📊 Trading pairs: ${this.tradingPairs.size}`);
       logger.info(`📈 Active orders: ${this.orders.size}`);
+      logger.info(`🔐 Privacy enabled: ${!!this.privacyService}`);
       
     } catch (error) {
       logger.error('❌ Failed to initialize order book:', error);
@@ -329,6 +343,11 @@ export class DecentralizedOrderBook extends EventEmitter {
    */
   async placeOrder(orderData: Partial<UnifiedOrder>): Promise<OrderResult> {
     try {
+      // Check if this is a privacy order (pXOM pair)
+      if (this.privacyService && this.isPrivacyPair(orderData.pair || '')) {
+        return await this.placePrivacyOrder(orderData);
+      }
+      
       // Validate order
       this.validateOrder(orderData);
       
@@ -861,8 +880,23 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   private async initializeTradingPairs(): Promise<void> {
-    // Initialize default trading pairs (all against XOM)
-    for (const pairSymbol of this.config.tradingPairs) {
+    // Add pXOM pairs to config if privacy service is available
+    const allPairs = [...this.config.tradingPairs];
+    if (this.privacyService) {
+      // Add standard pXOM pairs
+      const pxomPairs = [
+        'pXOM/USDC',
+        'pXOM/ETH',
+        'pXOM/BTC',
+        'pXOM/XOM',  // Direct conversion pair
+        'pXOM/DAI',
+        'pXOM/USDT'
+      ];
+      allPairs.push(...pxomPairs.filter(p => !allPairs.includes(p)));
+    }
+    
+    // Initialize all trading pairs (including pXOM)
+    for (const pairSymbol of allPairs) {
       const [base, quote] = pairSymbol.split('/');
       const pair: TradingPair = {
         symbol: pairSymbol,
@@ -902,6 +936,11 @@ export class DecentralizedOrderBook extends EventEmitter {
   private startOrderMatching(): void {
     // Start order matching engine
     logger.info('Starting order matching engine...');
+    
+    // Privacy service handles its own order matching
+    if (this.privacyService) {
+      logger.info('Privacy order matching engine active');
+    }
   }
 
   private startMarketDataUpdates(): void {
@@ -1099,5 +1138,200 @@ export class DecentralizedOrderBook extends EventEmitter {
     // Calculate ratio with 4 decimal precision
     const ratioBN = (usedMarginBN * 10000n) / totalValueBN;
     return Number(ratioBN) / 10000;
+  }
+  
+  /**
+   * Initialize privacy DEX service for pXOM trading
+   * Creates service with COTI SDK integration if available
+   */
+  private async initializePrivacyService(): Promise<void> {
+    try {
+      // Check if we have a provider (would come from config in production)
+      const provider = new ethers.JsonRpcProvider(
+        process.env.COTI_RPC_URL || 'https://devnet.coti.io'
+      );
+      
+      this.privacyService = new PrivacyDEXService(
+        {
+          privacyEnabled: true,
+          mpcNodeUrl: process.env.COTI_MPC_URL || 'https://mpc.coti.io',
+          conversionFee: 0.005 // 0.5% for XOM to pXOM
+        },
+        provider
+      );
+      
+      logger.info('Privacy DEX service initialized');
+    } catch (error) {
+      logger.warn('Privacy DEX service not available:', error);
+      // Continue without privacy features
+    }
+  }
+  
+  /**
+   * Initialize privacy trading pairs for pXOM
+   * Adds pXOM pairs to the trading pairs map
+   */
+  private async initializePrivacyPairs(): Promise<void> {
+    if (!this.privacyService) return;
+    
+    const pxomPairs = this.privacyService.getPXOMPairs();
+    
+    for (const pairSymbol of pxomPairs) {
+      if (!this.tradingPairs.has(pairSymbol)) {
+        const [base, quote] = pairSymbol.split('/');
+        const pair: TradingPair = {
+          symbol: pairSymbol,
+          baseAsset: base,
+          quoteAsset: quote,
+          type: 'spot',
+          status: 'TRADING',
+          minOrderSize: '0.001',
+          maxOrderSize: '1000000',
+          priceIncrement: '0.01',
+          quantityIncrement: '0.001',
+          makerFee: this.config.feeStructure.spotMaker,
+          takerFee: this.config.feeStructure.spotTaker,
+          validatorSignatures: [],
+          isPrivacy: true // Mark as privacy pair
+        } as TradingPair & { isPrivacy: boolean };
+        
+        this.tradingPairs.set(pairSymbol, pair);
+      }
+    }
+    
+    logger.info(`Initialized ${pxomPairs.length} privacy trading pairs`);
+  }
+  
+  /**
+   * Check if a trading pair is a privacy pair (contains pXOM)
+   * @param pair - Trading pair symbol to check
+   * @returns True if the pair involves pXOM
+   */
+  private isPrivacyPair(pair: string): boolean {
+    return pair.includes('pXOM') || (this.privacyService?.isPrivacyPair(pair) || false);
+  }
+  
+  /**
+   * Place a privacy-preserving order for pXOM pairs
+   * Routes order through privacy service with optional encryption
+   * @param orderData - Order data with privacy options
+   * @returns Order result with privacy metadata
+   */
+  private async placePrivacyOrder(orderData: Partial<UnifiedOrder>): Promise<OrderResult> {
+    if (!this.privacyService) {
+      throw new Error('Privacy service not available');
+    }
+    
+    const orderId = await this.privacyService.createPrivacyOrder(
+      orderData.userId!,
+      orderData.pair!,
+      orderData.side as 'buy' | 'sell',
+      parseFloat(orderData.quantity!),
+      orderData.type?.toLowerCase() as 'market' | 'limit',
+      orderData.price ? parseFloat(orderData.price) : undefined,
+      true // Use privacy by default for pXOM pairs
+    );
+    
+    // Create order object for tracking
+    const order: UnifiedOrder = {
+      id: orderId,
+      userId: orderData.userId!,
+      type: orderData.type!,
+      side: orderData.side!,
+      pair: orderData.pair!,
+      quantity: orderData.quantity!,
+      ...(orderData.price && { price: orderData.price }),
+      timeInForce: orderData.timeInForce || 'GTC',
+      leverage: 1,
+      reduceOnly: false,
+      postOnly: false,
+      status: 'OPEN',
+      filled: '0',
+      remaining: orderData.quantity!,
+      fees: '0',
+      timestamp: Date.now(),
+      updatedAt: Date.now(),
+      validatorSignatures: [],
+      replicationNodes: [],
+      isPrivacy: true // Mark as privacy order
+    } as UnifiedOrder & { isPrivacy: boolean };
+    
+    // Add to local state
+    this.orders.set(order.id, order);
+    this.addOrderToUserIndex(order);
+    this.addOrderToPairIndex(order);
+    
+    logger.info('Privacy order placed', {
+      orderId,
+      pair: orderData.pair,
+      isPrivate: true
+    });
+    
+    return {
+      success: true,
+      orderId,
+      order,
+      fees: 0,
+      message: 'Privacy order placed successfully'
+    };
+  }
+  
+  /**
+   * Get privacy DEX statistics
+   * @returns Privacy trading statistics and pool information
+   */
+  async getPrivacyStats(): Promise<any> {
+    if (!this.privacyService) {
+      return { privacyEnabled: false };
+    }
+    
+    return await this.privacyService.getPrivacyStats();
+  }
+  
+  /**
+   * Execute XOM ↔ pXOM conversion
+   * @param userId - User requesting conversion
+   * @param direction - Conversion direction ('XOM_TO_PXOM' or 'PXOM_TO_XOM')
+   * @param amount - Amount to convert
+   * @returns Conversion result with fees
+   */
+  async executePrivacyConversion(
+    userId: string,
+    direction: 'XOM_TO_PXOM' | 'PXOM_TO_XOM',
+    amount: string
+  ): Promise<ConversionResult> {
+    if (!this.privacyService) {
+      throw new Error('Privacy service not available');
+    }
+    
+    const [tokenIn, tokenOut] = direction === 'XOM_TO_PXOM' 
+      ? ['XOM', 'pXOM'] 
+      : ['pXOM', 'XOM'];
+    
+    const result = await this.privacyService.executePrivacySwap({
+      user: userId,
+      tokenIn,
+      tokenOut,
+      amountIn: parseFloat(amount),
+      usePrivacy: true
+    });
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Conversion failed');
+    }
+    
+    return {
+      success: true,
+      id: result.txHash || this.generateOrderId(),
+      fromToken: tokenIn,
+      fromAmount: amount,
+      toToken: tokenOut,
+      toAmount: result.amountOut?.toString() || '0',
+      conversionRate: '1', // 1:1 with fees
+      fees: result.fee?.toString() || '0',
+      actualSlippage: 0,
+      timestamp: Date.now(),
+      validatorApproval: true
+    };
   }
 } 

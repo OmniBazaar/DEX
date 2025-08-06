@@ -62,7 +62,10 @@
         "socket.io": "^4.7.2",
         "web3": "^4.2.0",
         "winston": "^3.11.0",
-        "ws": "^8.14.2"
+        "ws": "^8.14.2",
+        "@coti-io/coti-contracts": "^1.0.9",
+        "@coti-io/coti-ethers": "^1.0.5",
+        "@coti-io/coti-sdk-typescript": "^1.0.4"
     },
     "devDependencies": {
         "@nomicfoundation/hardhat-toolbox": "^3.0.0",
