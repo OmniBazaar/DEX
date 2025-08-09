@@ -1,5 +1,25 @@
 # General Rules
 
+## 🚨 CRITICAL: BEFORE WRITING ANY CODE
+
+**MANDATORY STEPS:**
+1. **READ `/mnt/c/Users/rickc/OmniBazaar/CURRENT_STATUS.md`** - Check what's already complete
+2. **SEARCH for existing implementations in this module** - Many features already exist!
+3. **VERIFY the task hasn't been done** - Don't duplicate work
+4. **UPDATE `/mnt/c/Users/rickc/OmniBazaar/CURRENT_STATUS.md`** after completing work
+5. **UPDATE `/mnt/c/Users/rickc/OmniBazaar/TODO.md`** to mark tasks complete
+
+**DEX MODULE - ALREADY IMPLEMENTED:**
+- ✅ 100% TypeScript compliance achieved
+- ✅ Hybrid order book + AMM model
+- ✅ dYdX v4 features integrated
+- ✅ MEV protection and circuit breakers
+- ✅ Cross-chain bridge support
+- ✅ Multi-DEX aggregation
+- ✅ All tests written (need execution)
+- ✅ Zero ESLint violations
+- ✅ Complete JSDoc coverage
+
 ## CRITICAL: Coding Standards (MUST READ BEFORE WRITING CODE)
 
 ### Solidity Development
