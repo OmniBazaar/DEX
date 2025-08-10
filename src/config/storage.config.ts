@@ -8,6 +8,7 @@
  */
 
 import { StorageConfig } from '../storage/HybridDEXStorage';
+import { getYugabyteConfig } from './yugabyte.config';
 
 export const DEFAULT_STORAGE_CONFIG: StorageConfig = {
   redis: {
@@ -17,7 +18,8 @@ export const DEFAULT_STORAGE_CONFIG: StorageConfig = {
     db: parseInt(process.env['REDIS_DB'] || '0')
   },
   
-  postgresql: {
+  // Use YugabyteDB for warm tier (PostgreSQL-compatible)
+  postgresql: process.env['USE_YUGABYTE'] === 'true' ? getYugabyteConfig() : {
     host: process.env['POSTGRES_HOST'] || 'localhost',
     port: parseInt(process.env['POSTGRES_PORT'] || '5432'),
     database: process.env['POSTGRES_DB'] || 'omnibazaar_dex',

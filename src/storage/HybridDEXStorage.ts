@@ -12,10 +12,20 @@
 import { EventEmitter } from 'events';
 import { createClient, RedisClientType } from 'redis';
 import { Pool as PostgreSQLPool } from 'pg';
-import { create as createIPFS, IPFSHTTPClient } from 'ipfs-http-client';
 import { UnifiedOrder, OrderBook } from '../types/config';
 import { logger } from '../utils/logger';
 import { toWei, fromWei } from '../constants/precision';
+
+// IPFS types - will be loaded dynamically due to ESM module
+interface IPFSHTTPClient {
+  add: (data: string | Buffer) => Promise<{ cid: { toString: () => string } }>;
+  get: (cid: string) => AsyncIterable<Uint8Array>;
+  pin: {
+    add: (cid: string) => Promise<void>;
+    rm: (cid: string) => Promise<void>;
+  };
+  version: () => Promise<{ version: string }>;
+}
 
 /**
  * Configuration for hybrid storage system
@@ -121,27 +131,57 @@ export class HybridDEXStorage extends EventEmitter {
       throw new Error('Storage already initialized');
     }
 
-    try {
-      logger.info('🚀 Initializing Hybrid DEX Storage...');
+    logger.info('🚀 Initializing Hybrid DEX Storage...');
+    let hasRedis = false;
+    let hasPostgreSQL = false;
+    let hasIPFS = false;
 
-      // Initialize Redis (hot tier)
-      await this.initializeRedis();
-      
-      // Initialize PostgreSQL (warm tier)
-      await this.initializePostgreSQL();
-      
-      // Initialize IPFS (cold tier)
-      await this.initializeIPFS();
-      
-      // Start synchronization
-      this.startSynchronization();
-      
-      this.isInitialized = true;
-      logger.info('✅ Hybrid storage initialized successfully');
-    } catch (error) {
-      logger.error('Failed to initialize hybrid storage:', error);
-      throw error;
+    // Initialize Redis (hot tier) - optional
+    if (this.config.redis.host) {
+      try {
+        await this.initializeRedis();
+        hasRedis = true;
+      } catch (error) {
+        logger.warn('Redis initialization failed, using in-memory cache only:', error);
+      }
     }
+    
+    // Initialize PostgreSQL/YugabyteDB (warm tier) - optional but recommended
+    if (this.config.postgresql.host) {
+      try {
+        await this.initializePostgreSQL();
+        hasPostgreSQL = true;
+      } catch (error) {
+        logger.warn('PostgreSQL/YugabyteDB initialization failed, using memory only:', error);
+      }
+    }
+    
+    // Initialize IPFS (cold tier) - optional
+    if (this.config.ipfs.host) {
+      try {
+        await this.initializeIPFS();
+        hasIPFS = true;
+      } catch (error) {
+        logger.warn('IPFS initialization failed, archival disabled:', error);
+      }
+    }
+    
+    // Ensure at least one storage tier is available
+    if (!hasRedis && !hasPostgreSQL) {
+      logger.warn('⚠️ No external storage available, using in-memory only!');
+      logger.warn('This mode is suitable for development/testing only.');
+    }
+    
+    // Start synchronization if we have multiple tiers
+    if ((hasRedis && hasPostgreSQL) || (hasPostgreSQL && hasIPFS)) {
+      this.startSynchronization();
+    }
+    
+    this.isInitialized = true;
+    logger.info('✅ Hybrid storage initialized with:');
+    logger.info(`   - Hot tier (Redis): ${hasRedis ? '✓' : '✗ (using in-memory)'}`);
+    logger.info(`   - Warm tier (DB): ${hasPostgreSQL ? '✓' : '✗ (using in-memory)'}`);
+    logger.info(`   - Cold tier (IPFS): ${hasIPFS ? '✓' : '✗ (archival disabled)'}`);
   }
 
   /**
@@ -187,22 +227,32 @@ export class HybridDEXStorage extends EventEmitter {
     // Create tables if not exist
     await this.createPostgreSQLSchema();
     
-    logger.info('✅ PostgreSQL connected for warm storage');
+    const dbType = this.config.postgresql.port === 5433 ? 'YugabyteDB' : 'PostgreSQL';
+    logger.info(`✅ ${dbType} connected for warm storage`);
   }
 
   /**
    * Initialize IPFS for cold storage
    */
   private async initializeIPFS(): Promise<void> {
-    this.ipfs = createIPFS({
-      host: this.config.ipfs.host,
-      port: this.config.ipfs.port,
-      protocol: this.config.ipfs.protocol
-    });
+    try {
+      // Dynamic import for ESM module
+      const { create: createIPFS } = await import('ipfs-http-client');
+      
+      this.ipfs = createIPFS({
+        host: this.config.ipfs.host,
+        port: this.config.ipfs.port,
+        protocol: this.config.ipfs.protocol
+      }) as unknown as IPFSHTTPClient;
 
-    // Test connection
-    const version = await this.ipfs.version();
-    logger.info(`✅ IPFS connected (version: ${version.version})`);
+      // Test connection
+      const version = await this.ipfs.version();
+      logger.info(`✅ IPFS connected (version: ${version.version})`);
+    } catch (error) {
+      // If IPFS client fails to load, log warning but continue
+      logger.warn('Failed to initialize IPFS client:', error);
+      throw error;
+    }
   }
 
   /**
@@ -226,12 +276,14 @@ export class HybridDEXStorage extends EventEmitter {
         fees NUMERIC(78, 0) DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        ipfs_cid VARCHAR(64),
-        INDEX idx_user_id (user_id),
-        INDEX idx_pair (pair),
-        INDEX idx_status (status),
-        INDEX idx_created_at (created_at)
+        ipfs_cid VARCHAR(64)
       )`,
+      
+      // Create indexes for orders table
+      `CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_orders_pair ON orders(pair)`,
+      `CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`,
       
       // Trades table
       `CREATE TABLE IF NOT EXISTS trades (
@@ -248,12 +300,14 @@ export class HybridDEXStorage extends EventEmitter {
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_buyer_maker BOOLEAN,
         ipfs_cid VARCHAR(64),
-        on_chain_tx_hash VARCHAR(66),
-        INDEX idx_order_id (order_id),
-        INDEX idx_user_id (user_id),
-        INDEX idx_pair (pair),
-        INDEX idx_timestamp (timestamp)
+        on_chain_tx_hash VARCHAR(66)
       )`,
+      
+      // Create indexes for trades table
+      `CREATE INDEX IF NOT EXISTS idx_trades_order_id ON trades(order_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_trades_user_id ON trades(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_trades_pair ON trades(pair)`,
+      `CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)`,
       
       // Positions table for perpetuals
       `CREATE TABLE IF NOT EXISTS positions (
@@ -271,10 +325,12 @@ export class HybridDEXStorage extends EventEmitter {
         funding_payment NUMERIC(78, 0) DEFAULT 0,
         last_funding_time TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_user_id (user_id),
-        INDEX idx_contract (contract)
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`,
+      
+      // Create indexes for positions table
+      `CREATE INDEX IF NOT EXISTS idx_positions_user_id ON positions(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_positions_contract ON positions(contract)`,
       
       // Market data table
       `CREATE TABLE IF NOT EXISTS market_data (
@@ -286,9 +342,11 @@ export class HybridDEXStorage extends EventEmitter {
         volume_24h NUMERIC(78, 0) NOT NULL,
         quote_volume_24h NUMERIC(78, 0) NOT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (pair, timestamp),
-        INDEX idx_timestamp (timestamp)
-      )`
+        PRIMARY KEY (pair, timestamp)
+      )`,
+      
+      // Create index for market data
+      `CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp)`
     ];
 
     for (const query of queries) {
@@ -323,30 +381,34 @@ export class HybridDEXStorage extends EventEmitter {
    * Write to hot storage (memory + Redis)
    */
   private async writeToHotStorage(order: UnifiedOrder): Promise<void> {
-    // In-memory cache
+    // Always use in-memory cache
     this.activeOrders.set(order.id, order);
     
     // Update order book cache
     this.updateOrderBookCache(order);
     
-    // Redis with expiration
+    // Use Redis if available for distributed caching
     if (this.redis) {
-      const key = `order:${order.id}`;
-      const value = JSON.stringify(order);
-      const ttl = 86400; // 24 hours
-      
-      await this.redis.setEx(key, ttl, value);
-      
-      // Add to sorted sets for efficient queries
-      await this.redis.zAdd(`orders:${order.pair}:${order.side}`, {
-        score: parseFloat(order.price || '0'),
-        value: order.id
-      });
-      
-      await this.redis.zAdd(`orders:user:${order.userId}`, {
-        score: order.timestamp,
-        value: order.id
-      });
+      try {
+        const key = `order:${order.id}`;
+        const value = JSON.stringify(order);
+        const ttl = 86400; // 24 hours
+        
+        await this.redis.setEx(key, ttl, value);
+        
+        // Add to sorted sets for efficient queries
+        await this.redis.zAdd(`orders:${order.pair}:${order.side}`, {
+          score: parseFloat(order.price || '0'),
+          value: order.id
+        });
+        
+        await this.redis.zAdd(`orders:user:${order.userId}`, {
+          score: order.timestamp,
+          value: order.id
+        });
+      } catch (error) {
+        logger.warn('Failed to write to Redis, using in-memory only:', error);
+      }
     }
   }
 
@@ -395,49 +457,53 @@ export class HybridDEXStorage extends EventEmitter {
    * Get order book from hybrid storage
    */
   async getOrderBook(pair: string, depth: number = 20): Promise<OrderBook> {
-    // 1. Try hot storage first
+    // 1. Try hot storage first (in-memory cache)
     const cached = this.orderBookCache.get(pair);
     if (cached && Date.now() - cached.timestamp < 1000) {
       return cached;
     }
 
-    // 2. Reconstruct from Redis
+    // 2. Try Redis if available
     if (this.redis) {
-      const bids = await this.redis.zRangeWithScores(
-        `orders:${pair}:BUY`,
-        -depth,
-        -1,
-        { REV: true }
-      );
-      
-      const asks = await this.redis.zRangeWithScores(
-        `orders:${pair}:SELL`,
-        0,
-        depth - 1
-      );
+      try {
+        const bids = await this.redis.zRangeWithScores(
+          `orders:${pair}:BUY`,
+          -depth,
+          -1,
+          { REV: true }
+        );
+        
+        const asks = await this.redis.zRangeWithScores(
+          `orders:${pair}:SELL`,
+          0,
+          depth - 1
+        );
 
-      const orderBook: OrderBook = {
-        pair,
-        bids: bids.map((b: { value: string; score: number }) => ({
-          price: b.score.toString(),
-          quantity: '0', // Will be aggregated
-          orders: 1
-        })),
-        asks: asks.map((a: { value: string; score: number }) => ({
-          price: a.score.toString(),
-          quantity: '0',
-          orders: 1
-        })),
-        timestamp: Date.now(),
-        sequence: 0,
-        sourceNodes: ['local'],
-        validatorConsensus: true,
-        consensusScore: 1.0
-      };
+        const orderBook: OrderBook = {
+          pair,
+          bids: bids.map((b: { value: string; score: number }) => ({
+            price: b.score.toString(),
+            quantity: '0', // Will be aggregated
+            orders: 1
+          })),
+          asks: asks.map((a: { value: string; score: number }) => ({
+            price: a.score.toString(),
+            quantity: '0',
+            orders: 1
+          })),
+          timestamp: Date.now(),
+          sequence: 0,
+          sourceNodes: ['local'],
+          validatorConsensus: true,
+          consensusScore: 1.0
+        };
 
-      // Cache and return
-      this.orderBookCache.set(pair, orderBook);
-      return orderBook;
+        // Cache and return
+        this.orderBookCache.set(pair, orderBook);
+        return orderBook;
+      } catch (error) {
+        logger.warn('Failed to get order book from Redis:', error);
+      }
     }
 
     // 3. Fall back to warm storage
@@ -449,7 +515,17 @@ export class HybridDEXStorage extends EventEmitter {
    */
   private async getOrderBookFromWarmStorage(pair: string, depth: number): Promise<OrderBook> {
     if (!this.postgresql) {
-      throw new Error('PostgreSQL not initialized');
+      // Return empty order book if no warm storage
+      return {
+        pair,
+        bids: [],
+        asks: [],
+        timestamp: Date.now(),
+        sequence: 0,
+        sourceNodes: ['in-memory'],
+        validatorConsensus: false,
+        consensusScore: 0.5
+      };
     }
 
     const query = `
@@ -531,12 +607,14 @@ export class HybridDEXStorage extends EventEmitter {
    * Schedule order archival to IPFS
    */
   private scheduleArchival(order: UnifiedOrder): void {
-    // Archive after configured threshold
-    setTimeout(() => {
-      this.archiveToIPFS(order).catch(err => {
-        logger.error('Failed to archive order:', err);
-      });
-    }, this.config.archival.threshold * 24 * 60 * 60 * 1000);
+    // Only schedule archival if IPFS is available
+    if (this.ipfs && this.config.archival.threshold > 0) {
+      setTimeout(() => {
+        this.archiveToIPFS(order).catch(err => {
+          logger.error('Failed to archive order:', err);
+        });
+      }, this.config.archival.threshold * 24 * 60 * 60 * 1000);
+    }
   }
 
   /**

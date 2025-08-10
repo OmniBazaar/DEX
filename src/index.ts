@@ -43,19 +43,14 @@ interface ValidatorService {
   operational: boolean;
 }
 
-// UNIFIED VALIDATOR CORE COMPONENTS - Using actual implementations
+// UNIFIED VALIDATOR CORE COMPONENTS - Using service abstractions
 import { ValidatorClient } from './client/ValidatorClient';
 import { DecentralizedOrderBook } from './core/dex/DecentralizedOrderBook';
+import { ValidatorDEXService } from './services/ValidatorDEXService';
+import { ValidatorServiceProxy } from './services/validator-integration/ValidatorServiceProxy';
 
-// Import actual implementations from Validator module
-import { IPFSStorageNetwork } from '../../Validator/src/services/storage/IPFSStorageNetwork';
-import { P2PChatNetwork } from '../../Validator/src/services/chat/P2PChatNetwork';
-import { FeeService } from '../../Validator/src/services/FeeService';
-import { BlockRewardService } from '../../Validator/src/services/BlockRewardService';
-import { MasterMerkleEngine } from '../../Validator/src/engines/MasterMerkleEngine';
-import { ConfigService } from '../../Validator/src/services/ConfigService';
-import { Database } from '../../Validator/src/database/Database';
-// import { ParticipationScoreService } from '../../Validator/src/services/ParticipationScoreService';
+// Use proxy services instead of direct imports to maintain module boundaries
+// The actual implementations run in the Validator module
 
 // API Routes
 import { 
@@ -113,16 +108,11 @@ class UnifiedValidatorDEX {
   private io: SocketIOServer;
   private config: ValidatorConfig;
   
-  // UNIFIED VALIDATOR COMPONENTS - Using actual implementations
+  // UNIFIED VALIDATOR COMPONENTS - Using service abstractions
   private validatorClient!: ValidatorClient;
   private orderBook!: DecentralizedOrderBook;
-  private blockchain!: BlockRewardService; // Blockchain rewards service
-  private storage!: IPFSStorageNetwork;
-  private chat!: P2PChatNetwork;
-  private feeDistribution!: FeeService;
-  private merkleEngine!: MasterMerkleEngine;
-  private configService!: ConfigService;
-  private database!: Database;
+  private validatorDEX!: ValidatorDEXService;
+  private validatorProxy!: ValidatorServiceProxy;
 
   /**
    * Creates a new UnifiedValidatorDEX instance
@@ -340,30 +330,17 @@ class UnifiedValidatorDEX {
     try {
       logger.info('🚀 Initializing Unified Validator DEX...');
       
-      // 0. Initialize core dependencies with YugabyteDB
-      this.database = new Database({
-        host: process.env.DB_HOST || 'localhost',
-        port: parseInt(process.env.DB_PORT || '5433'), // YugabyteDB default port
-        database: process.env.DB_NAME || 'dex_validator',
-        user: process.env.DB_USER || 'yugabyte',
-        password: process.env.DB_PASSWORD || '',
-        ssl: process.env.DB_SSL === 'true',
-        maxConnections: 30, // Increased for distributed nature
-        redis: {
-          host: process.env.REDIS_HOST || process.env.DB_HOST || 'localhost',
-          port: parseInt(process.env.REDIS_PORT || '6379'), // YugabyteDB Redis API
-          password: process.env.REDIS_PASSWORD,
-          db: 0
-        }
+      // 0. Initialize Validator proxy service
+      // This provides access to storage, chat, fees, and rewards without direct imports
+      this.validatorProxy = new ValidatorServiceProxy({
+        validatorUrl: process.env.VALIDATOR_URL || 'http://localhost:3000',
+        wsUrl: process.env.VALIDATOR_WS_URL || 'ws://localhost:3001',
+        apiKey: process.env.VALIDATOR_API_KEY,
+        timeout: 30000,
+        mockMode: process.env.NODE_ENV === 'development' // Use mock mode in development
       });
-      await this.database.initialize();
-      
-      // Create MerkleEngine first with initial data
-      this.merkleEngine = new MasterMerkleEngine();
-      
-      // Then create ConfigService with MerkleEngine
-      this.configService = new ConfigService(this.merkleEngine, 0.67);
-      logger.info('✅ Core dependencies initialized');
+      await this.validatorProxy.connect();
+      logger.info('✅ Connected to Validator proxy services');
 
       // 1. Initialize Validator Client
       this.validatorClient = new ValidatorClient({
@@ -373,47 +350,29 @@ class UnifiedValidatorDEX {
       await this.validatorClient.connect();
       logger.info('✅ Validator client connected');
 
-      // 2. Initialize BlockReward Service (~15% resources)
-      this.blockchain = new BlockRewardService(this.database, {
-        oddaoAddress: process.env.ODDAO_ADDRESS || '0x0000000000000000000000000000000000000001',
-        stakingPoolAddress: process.env.STAKING_POOL_ADDRESS || '0x0000000000000000000000000000000000000002'
+      // 2. Initialize ValidatorDEX Service
+      this.validatorDEX = new ValidatorDEXService({
+        validatorEndpoint: process.env.VALIDATOR_API_URL || 'http://localhost:8080',
+        wsEndpoint: process.env.VALIDATOR_WS_URL || 'ws://localhost:8080',
+        networkId: this.config.blockchain.networkId,
+        tradingPairs: this.config.dex.tradingPairs,
+        feeStructure: {
+          maker: this.config.dex.feeStructure.spotMaker,
+          taker: this.config.dex.feeStructure.spotTaker
+        }
       });
-      await this.blockchain.initialize();
-      logger.info('✅ OmniCoin blockchain reward service initialized');
+      await this.validatorDEX.initialize();
+      logger.info('✅ ValidatorDEX service initialized');
 
-      // 3. Initialize IPFS Storage Network (~15% resources)
-      this.storage = new IPFSStorageNetwork({
-        bootstrapNodes: [
-          '/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ',
-          '/ip4/104.236.179.241/tcp/4001/p2p/QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KrGM'
-        ],
-        storageQuota: 10 * 1024 * 1024 * 1024, // 10GB
-        enableGateway: true,
-        gatewayPort: 8081
-      } as any);
-      await this.storage.initialize();
-      logger.info('✅ IPFS storage network initialized');
+      // 3. Services are now accessed through validatorProxy
+      // - Storage: this.validatorProxy.storage
+      // - Chat: this.validatorProxy.chat
+      // - Fees: this.validatorProxy.fees
+      // - Rewards: this.validatorProxy.rewards
+      logger.info('✅ Validator services available through proxy');
 
-      // 4. Initialize Fee Distribution Service (~5% resources) - before chat
-      this.feeDistribution = new FeeService(this.merkleEngine, this.configService);
-      logger.info('✅ Fee distribution service initialized');
-
-      // 5. Initialize P2P Chat Network (~10% resources)
-      this.chat = new P2PChatNetwork({
-        maxChannels: 1000,
-        maxUsersPerChannel: 100,
-        messageRetentionDays: 7,
-        enableEncryption: true,
-        maxMessageSize: 10000,
-        rateLimitMessages: 10,
-        rateLimitWindowMs: 60000,
-        bootstrapNodes: []
-      }, this.database, this.feeDistribution);
-      await this.chat.initialize();
-      logger.info('✅ P2P chat network initialized');
-
-      // 6. Initialize Decentralized Order Book (~20% resources)
-      this.orderBook = new DecentralizedOrderBook(this.config.dex, this.storage as any);
+      // 4. Initialize Decentralized Order Book
+      this.orderBook = new DecentralizedOrderBook(this.config.dex, this.validatorProxy.storage as any);
       await this.orderBook.initialize();
       logger.info('✅ Decentralized order book initialized');
 
@@ -457,8 +416,8 @@ class UnifiedValidatorDEX {
         components: {
           blockchain: { status: 'healthy', service: 'BlockRewardService' },
           dex: { status: 'healthy', service: 'DecentralizedOrderBook' },
-          storage: { status: this.storage.isRunning ? 'healthy' : 'degraded', service: 'IPFSStorageNetwork' },
-          chat: { status: this.chat.isConnected ? 'healthy' : 'degraded', service: 'P2PChatNetwork' },
+          storage: { status: this.validatorProxy.storage.ipfsConnected ? 'healthy' : 'degraded', service: 'IPFSStorageNetwork' },
+          chat: { status: this.validatorProxy.chat.connected ? 'healthy' : 'degraded', service: 'P2PChatNetwork' },
           validator: { status: this.validatorClient.isConnected() ? 'healthy' : 'degraded', service: 'ValidatorClient' }
         },
         resourceUsage: await this.getResourceUsage()
@@ -488,10 +447,10 @@ class UnifiedValidatorDEX {
     });
 
     // API routes for unified services
-    this.app.use('/api/v1/trading', createTradingRoutes(this.orderBook as unknown as OrderBookService, this.feeDistribution as unknown as FeeServiceStatus));
+    this.app.use('/api/v1/trading', createTradingRoutes(this.orderBook as unknown as OrderBookService, this.validatorProxy.fees as unknown as FeeServiceStatus));
     this.app.use('/api/v1/market-data', createMarketDataRoutes(this.orderBook as unknown as OrderBookService));
-    this.app.use('/api/v1/chat', createChatRoutes(this.chat as unknown as ChatService));
-    this.app.use('/api/v1/storage', createStorageRoutes(this.storage as unknown as StorageService));
+    this.app.use('/api/v1/chat', createChatRoutes(this.validatorProxy.chat as unknown as ChatService));
+    this.app.use('/api/v1/storage', createStorageRoutes(this.validatorProxy.storage as unknown as StorageService));
     // this.app.use('/api/v1/validator', createValidatorRoutes(this.validatorNode as unknown as ValidatorService));
 
     // Error handling middleware
@@ -536,9 +495,9 @@ class UnifiedValidatorDEX {
       // Subscribe to chat messages
       socket.on('subscribe:chat', (channels: string[]) => {
         for (const channel of channels) {
-          (this.chat as unknown as EventEmitter).on('messageReceived', (message: {channel: string}) => {
-            if (message.channel === channel) {
-              socket.emit('chat-message', message);
+          this.validatorProxy.chat.onMessage((channel: string, message: string, sender: string) => {
+            if (channel === channels[0]) { // Check if message is from subscribed channel
+              socket.emit('chat-message', { channel, message, sender });
             }
           });
         }
@@ -551,7 +510,7 @@ class UnifiedValidatorDEX {
         //   socket.emit('validator-update', update);
         // });
 
-        (this.feeDistribution as unknown as EventEmitter).on('feesDistributed', (distribution: unknown) => {
+        this.validatorProxy.on('feesDistributed', (distribution: unknown) => {
           socket.emit('fee-distribution', distribution);
         });
       });
@@ -612,13 +571,9 @@ class UnifiedValidatorDEX {
 
       // Shutdown all unified services
       // await this.validatorNode.shutdown();
-      await this.feeDistribution.shutdown();
       await this.orderBook.shutdown();
-      await this.chat.shutdown();
-      await this.storage.shutdown();
-      await this.blockchain.shutdown();
-      // MerkleEngine doesn't have shutdown
-      await this.database.close();
+      await this.validatorProxy.disconnect();
+      await this.validatorClient.disconnect();
 
       logger.info('✅ Unified Validator DEX shutdown completed');
 
@@ -637,29 +592,35 @@ class UnifiedValidatorDEX {
     this.orderBook.on('orderPlaced', (order) => {
       logger.info('Order placed:', order);
       // Store order data in IPFS
-      this.storage.store(`order_${order.id}`, JSON.stringify(order));
+      this.validatorProxy.storage.store(Buffer.from(JSON.stringify(order)), { type: 'order', id: order.id });
     });
 
     this.orderBook.on('orderFilled', (trade) => {
       logger.info('Order filled:', trade);
       // Distribute fees
-      this.feeDistribution.recordTrade(trade);
+      // Fee distribution handled through validator proxy
+      const fee = this.validatorProxy.fees.calculateFee(BigInt(trade.amount), 'trade');
+      this.validatorProxy.fees.distributeFees(fee, []);
     });
 
     // Listen for chat events
-    this.chat.on('message', (message: any) => {
-      logger.debug('Chat message received:', message);
+    // Chat messages handled through proxy callbacks
+    this.validatorProxy.chat.onMessage(async (channel: string, message: string, sender: string) => {
+      logger.debug('Chat message received:', { channel, message, sender });
       // Store chat history in IPFS
-      this.storage.store(`chat_${Date.now()}`, JSON.stringify(message));
+      await this.validatorProxy.storage.store(
+        Buffer.from(JSON.stringify({ channel, message, sender, timestamp: Date.now() })),
+        { type: 'chat' }
+      );
     });
 
     // Listen for storage events
-    this.storage.on('fileAdded', (cid: any) => {
+    this.validatorProxy.on('storage:fileAdded', (cid: any) => {
       logger.debug('File added to IPFS:', cid);
     });
 
     // Listen for fee distribution events
-    this.feeDistribution.on('distribution', (distribution: any) => {
+    this.validatorProxy.on('fees:distributed', (distribution: any) => {
       logger.info('Fee distribution completed:', distribution);
     });
   }
@@ -677,8 +638,8 @@ class UnifiedValidatorDEX {
       fee: 5          // 5% for fee distribution
     };
 
-    const isStorageActive = this.storage.isRunning || false;
-    const isChatActive = this.chat.isConnected || false;
+    const isStorageActive = this.validatorProxy.storage.ipfsConnected || false;
+    const isChatActive = this.validatorProxy.chat.connected || false;
 
     return {
       cpu: baseUsage.blockchain + baseUsage.orderBook + baseUsage.fee + 
