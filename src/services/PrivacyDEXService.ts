@@ -17,6 +17,7 @@
 import { EventEmitter } from 'events';
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger';
+import { generateOrderId } from '../utils/id-generator';
 import { 
   UnifiedOrder, 
   Trade, 
@@ -274,7 +275,7 @@ export class PrivacyDEXService extends EventEmitter {
     usePrivacy = true
   ): Promise<string> {
     try {
-      const orderId = `privacy_order_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const orderId = generateOrderId();
       
       let order: PrivacyOrder = {
         id: orderId,

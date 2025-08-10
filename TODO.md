@@ -56,6 +56,14 @@
 
 ## 🔴 CRITICAL - Remaining Tasks
 
+### Database Integration (HIGH PRIORITY)
+- [ ] **YugabyteDB Integration**
+  - [ ] Update HybridDEXStorage to use database instead of in-memory
+  - [ ] Fix GENERATED ALWAYS AS columns (use triggers/app logic)
+  - [ ] Implement database connection pooling
+  - [ ] Add order archival strategy
+  - [ ] Test database performance under load
+
 ### Test Execution (HIGH PRIORITY)
 - [ ] **Run Test Suite**
   - [ ] Execute 100+ smart contract tests

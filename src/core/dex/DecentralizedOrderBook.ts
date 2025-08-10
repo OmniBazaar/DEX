@@ -26,6 +26,7 @@ import {
 } from '../../types/config';
 import { ServiceHealth } from '../../types/validator';
 import { logger } from '../../utils/logger';
+import { generateOrderId, generateTradeId } from '../../utils/id-generator';
 import { 
   PRECISION,
   toWei,
@@ -977,7 +978,7 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   private generateOrderId(): string {
-    return `order_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+    return generateOrderId();
   }
 
   private addOrderToUserIndex(order: UnifiedOrder): void {

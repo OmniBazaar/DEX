@@ -12,6 +12,7 @@ import {
   PlaceOrderRequest
 } from '../types/client';
 import { logger } from '../utils/logger';
+import { generateOrderId } from '../utils/id-generator';
 
 /**
  * Implementation of OmniValidatorClient for DEX operations
@@ -92,8 +93,8 @@ export class ValidatorClient implements OmniValidatorClient {
   async placeOrder(order: PlaceOrderRequest): Promise<string> {
     logger.info('Placing order', order);
     
-    // Mock implementation - generate order ID
-    const orderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate proper UUID for order ID
+    const orderId = generateOrderId();
     
     // TODO: Replace with actual API call to validator
     return orderId;
