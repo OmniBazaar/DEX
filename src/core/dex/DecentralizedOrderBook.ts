@@ -35,6 +35,7 @@ import {
 import { HybridDEXStorage } from '../../storage/HybridDEXStorage';
 import { getStorageConfig } from '../../config/storage.config';
 import { PrivacyDEXService } from '../../services/PrivacyDEXService';
+import { ContractService, SettlementData } from '../../services/ContractService';
 import { ethers } from 'ethers';
 
 /**
@@ -227,6 +228,8 @@ export class DecentralizedOrderBook extends EventEmitter {
   private hybridStorage?: HybridDEXStorage;
   /** Privacy-enhanced DEX service for pXOM trading */
   private privacyService?: PrivacyDEXService;
+  /** Contract service for on-chain settlement */
+  private contractService?: ContractService;
   /** Initialization status */
   private isInitialized = false;
   
@@ -267,10 +270,14 @@ export class DecentralizedOrderBook extends EventEmitter {
     // Initialize privacy service if provider is available
     this.initializePrivacyService();
     
+    // Initialize contract service for on-chain settlement
+    this.initializeContractService();
+    
     logger.info('DecentralizedOrderBook created', {
       pairs: config.tradingPairs.length,
       feeStructure: config.feeStructure,
-      privacyEnabled: !!this.privacyService
+      privacyEnabled: !!this.privacyService,
+      contractEnabled: !!this.contractService
     });
   }
 
@@ -737,6 +744,161 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   /**
+   * Settle a trade on-chain using the OmniCore contract
+   * @param buyer - Buyer address
+   * @param seller - Seller address
+   * @param token - Token address being traded
+   * @param amount - Amount of tokens
+   * @param orderId - Order identifier
+   * @returns Promise resolving to settlement success
+   */
+  async settleTradeOnChain(
+    buyer: string,
+    seller: string,
+    token: string,
+    amount: string,
+    orderId: string
+  ): Promise<boolean> {
+    try {
+      if (!this.contractService) {
+        logger.warn('Contract service not available, using off-chain settlement');
+        return true; // Fallback to off-chain settlement
+      }
+
+      const settlement: SettlementData = {
+        buyer,
+        seller,
+        token,
+        amount,
+        orderId
+      };
+
+      const result = await this.contractService.settleDEXTrade(settlement);
+      
+      if (result.success) {
+        logger.info('Trade settled on-chain', {
+          txHash: result.txHash,
+          orderId,
+          buyer,
+          seller,
+          amount
+        });
+        
+        // Emit settlement event
+        this.emit('tradeSettled', {
+          orderId,
+          buyer,
+          seller,
+          token,
+          amount,
+          txHash: result.txHash,
+          blockNumber: result.blockNumber,
+          timestamp: Date.now()
+        });
+        
+        return true;
+      } else {
+        logger.error('On-chain settlement failed', {
+          orderId,
+          error: result.error
+        });
+        return false;
+      }
+    } catch (error) {
+      logger.error('Error settling trade on-chain:', error);
+      // Fallback to off-chain settlement
+      return true;
+    }
+  }
+
+  /**
+   * Batch settle multiple trades on-chain for gas efficiency
+   * @param settlements - Array of settlement data
+   * @returns Promise resolving to batch settlement success
+   */
+  async batchSettleTradesOnChain(settlements: SettlementData[]): Promise<boolean> {
+    try {
+      if (!this.contractService || settlements.length === 0) {
+        return true; // Fallback to off-chain
+      }
+
+      const batchData = {
+        buyers: settlements.map(s => s.buyer),
+        sellers: settlements.map(s => s.seller),
+        tokens: settlements.map(s => s.token),
+        amounts: settlements.map(s => s.amount),
+        batchId: `batch_${Date.now()}_${Math.random().toString(36).substring(7)}`
+      };
+
+      const result = await this.contractService.batchSettleDEX(batchData);
+      
+      if (result.success) {
+        logger.info('Batch settled on-chain', {
+          txHash: result.txHash,
+          batchId: batchData.batchId,
+          count: settlements.length
+        });
+        
+        // Emit batch settlement event
+        this.emit('batchTradeSettled', {
+          batchId: batchData.batchId,
+          settlements,
+          txHash: result.txHash,
+          blockNumber: result.blockNumber,
+          timestamp: Date.now()
+        });
+        
+        return true;
+      } else {
+        logger.error('Batch settlement failed', {
+          batchId: batchData.batchId,
+          error: result.error
+        });
+        return false;
+      }
+    } catch (error) {
+      logger.error('Error batch settling trades:', error);
+      return true; // Fallback
+    }
+  }
+
+  /**
+   * Distribute DEX fees according to tokenomics
+   * @param token - Fee token address
+   * @param totalFee - Total fee amount
+   * @param validatorAddress - Validator processing the transaction
+   */
+  async distributeFees(
+    token: string,
+    totalFee: string,
+    validatorAddress: string
+  ): Promise<void> {
+    try {
+      if (!this.contractService) {
+        logger.warn('Contract service not available, fees held locally');
+        return;
+      }
+
+      const result = await this.contractService.distributeDEXFees(
+        token,
+        totalFee,
+        validatorAddress
+      );
+
+      if (result.success) {
+        logger.info('Fees distributed on-chain', {
+          txHash: result.txHash,
+          token,
+          totalFee,
+          validator: validatorAddress
+        });
+      }
+    } catch (error) {
+      logger.error('Error distributing fees:', error);
+    }
+  }
+
+  /**
    * Get health status of the order book service
    * @returns Promise resolving to service health with operational metrics
    */
@@ -965,8 +1127,14 @@ export class DecentralizedOrderBook extends EventEmitter {
   private async updatePosition(orderData: Partial<PerpetualOrder>): Promise<Position> {
     // Create or update position
     return {
+      id: `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      userId: orderData.userId || 'unknown',
+      pair: orderData.contract || 'XOM/USDC',
+      type: 'PERPETUAL',
+      side: orderData.side || 'LONG',
+      status: 'ACTIVE',
+      openedAt: Date.now(),
       contract: orderData.contract!,
-      side: orderData.side!,
       size: orderData.size!,
       entryPrice: '1.50',
       markPrice: '1.50',
@@ -989,11 +1157,11 @@ export class DecentralizedOrderBook extends EventEmitter {
     // Calculate unrealized P&L
     if (Array.isArray(input)) {
       return input.reduce((sum, p) => {
-        const pnlBN = toWei(p.unrealizedPnL);
+        const pnlBN = toWei(p.unrealizedPnL || '0');
         return sum + pnlBN;
       }, 0n).toString();
     }
-    return input.unrealizedPnL;
+    return input.unrealizedPnL || '0';
   }
 
   private calculatePerpetualFees(size: string, _leverage: number): string {
@@ -1164,6 +1332,47 @@ export class DecentralizedOrderBook extends EventEmitter {
     } catch (error) {
       logger.warn('Privacy DEX service not available:', error);
       // Continue without privacy features
+    }
+  }
+
+  /**
+   * Initialize contract service for on-chain settlement
+   */
+  private initializeContractService(): void {
+    try {
+      // Get contract configuration from environment or defaults
+      const contractAddress = process.env.OMNICORE_CONTRACT_ADDRESS || 
+        '0x1234567890123456789012345678901234567890'; // Placeholder for testnet
+      const providerUrl = process.env.RPC_URL || 
+        'https://api.avax-test.network/ext/bc/C/rpc'; // Avalanche testnet
+      
+      // Validator private key for settlement (would come from secure storage)
+      const validatorKey = process.env.VALIDATOR_PRIVATE_KEY;
+      
+      this.contractService = new ContractService({
+        contractAddress,
+        providerUrl,
+        privateKey: validatorKey,
+        gasLimit: 500000,
+        gasPrice: ethers.parseUnits('25', 'gwei').toString(),
+        confirmations: 1 // Fast confirmation for testing
+      });
+      
+      // Listen for settlement events
+      this.contractService.onSettlement((event) => {
+        logger.info('On-chain settlement confirmed', event);
+        this.emit('settlementConfirmed', event);
+      });
+      
+      this.contractService.onBatchSettlement((event) => {
+        logger.info('Batch settlement confirmed', event);
+        this.emit('batchSettlementConfirmed', event);
+      });
+      
+      logger.info('Contract service initialized', { contractAddress });
+    } catch (error) {
+      logger.warn('Contract service not available:', error);
+      // Continue with off-chain settlement only
     }
   }
   

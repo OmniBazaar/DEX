@@ -5,8 +5,8 @@
  */
 
 import { 
-  AvalancheValidatorClient, 
-  AvalancheValidatorClientConfig,
+  OmniValidatorClient, 
+  OmniValidatorClientConfig,
   HealthStatus,
   OrderBookData,
   PlaceOrderRequest
@@ -14,7 +14,7 @@ import {
 import { logger } from '../utils/logger';
 
 /**
- * Implementation of AvalancheValidatorClient for DEX operations
+ * Implementation of OmniValidatorClient for DEX operations
  * Provides mock implementation for testing and development
  * @example
  * ```typescript
@@ -25,9 +25,9 @@ import { logger } from '../utils/logger';
  * const health = await client.getHealth();
  * ```
  */
-export class ValidatorClient implements AvalancheValidatorClient {
+export class ValidatorClient implements OmniValidatorClient {
   /** Client configuration */
-  private _config: AvalancheValidatorClientConfig;
+  private _config: OmniValidatorClientConfig;
   /** Connection status */
   private _isConnected = false;
 
@@ -35,17 +35,10 @@ export class ValidatorClient implements AvalancheValidatorClient {
    * Creates a new ValidatorClient instance
    * @param config - Client configuration
    */
-  constructor(config: AvalancheValidatorClientConfig) {
+  constructor(config: OmniValidatorClientConfig) {
     this._config = config;
   }
 
-  /**
-   * Gets the connection status
-   * @returns True if client is connected
-   */
-  get isConnected(): boolean {
-    return this._isConnected;
-  }
 
   /**
    * Get health status of all validator services
@@ -107,6 +100,33 @@ export class ValidatorClient implements AvalancheValidatorClient {
   }
 
   /**
+   * Connect to the validator service
+   * @returns Promise that resolves when connected
+   */
+  async connect(): Promise<void> {
+    logger.info('Connecting to validator', { endpoint: this._config.validatorEndpoint });
+    // TODO: Implement actual connection logic
+    this._isConnected = true;
+    logger.info('Connected to validator');
+  }
+
+  /**
+   * Check if client is connected
+   * @returns True if connected
+   */
+  isConnected(): boolean {
+    return this._isConnected;
+  }
+
+  /**
+   * Disconnect from the validator service
+   * @returns Promise that resolves when disconnected
+   */
+  async disconnect(): Promise<void> {
+    await this.close();
+  }
+
+  /**
    * Close the client connection and cleanup resources
    * @returns Promise that resolves when client is closed
    */
@@ -117,17 +137,17 @@ export class ValidatorClient implements AvalancheValidatorClient {
 }
 
 /**
- * Factory function to create an Avalanche validator client
+ * Factory function to create an Omni validator client
  * @param config - Client configuration
  * @returns New validator client instance
  * @example
  * ```typescript
- * const client = createAvalancheValidatorClient({
+ * const client = createOmniValidatorClient({
  *   validatorEndpoint: 'http://localhost:8080',
  *   apiKey: 'your-api-key'
  * });
  * ```
  */
-export function createAvalancheValidatorClient(config: AvalancheValidatorClientConfig): AvalancheValidatorClient {
+export function createOmniValidatorClient(config: OmniValidatorClientConfig): OmniValidatorClient {
   return new ValidatorClient(config);
 }

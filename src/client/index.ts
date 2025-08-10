@@ -7,13 +7,13 @@
 /**
  * Export ValidatorClient class and factory function
  */
-export { ValidatorClient, createAvalancheValidatorClient } from './ValidatorClient';
+export { ValidatorClient, createOmniValidatorClient } from './ValidatorClient';
 /**
  * Re-export client types for convenience
  */
 export type { 
-  AvalancheValidatorClient, 
-  AvalancheValidatorClientConfig,
+  OmniValidatorClient, 
+  OmniValidatorClientConfig,
   HealthStatus,
   OrderBookData,
   PlaceOrderRequest

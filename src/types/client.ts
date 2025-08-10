@@ -7,9 +7,9 @@
 import { OrderBookLevel } from './validator';
 
 /**
- * Configuration for connecting to an Avalanche validator client
+ * Configuration for connecting to an OmniCoin validator client
  */
-export interface AvalancheValidatorClientConfig {
+export interface OmniValidatorClientConfig {
   /** URL endpoint for the validator service */
   validatorEndpoint: string;
   /** Optional WebSocket endpoint for real-time updates */
@@ -74,15 +74,15 @@ export interface PlaceOrderRequest {
 }
 
 /**
- * Interface for interacting with Avalanche validator client
+ * Interface for interacting with OmniCoin validator client
  * @example
  * ```typescript
- * const client = new AvalancheValidatorClient(config);
+ * const client = new OmniValidatorClient(config);
  * const health = await client.getHealth();
  * const orderBook = await client.getOrderBook('XOM/USDC', 10);
  * ```
  */
-export interface AvalancheValidatorClient {
+export interface OmniValidatorClient {
   /**
    * Get health status of all validator services
    * @returns Promise resolving to health status information

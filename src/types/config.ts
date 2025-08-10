@@ -219,28 +219,47 @@ export interface PerpetualOrder {
  * Tracks open positions with P&L and margin requirements
  */
 export interface Position {
-  /** Perpetual contract symbol */
-  contract: string;
+  /** Position ID */
+  id: string;
+  /** User ID/trader address */
+  userId: string;
+  /** Trading pair or contract symbol */
+  pair: string;
+  /** Contract/perpetual symbol (alias for pair) */
+  contract?: string;
+  /** Position type */
+  type: 'SPOT' | 'PERPETUAL' | 'FUTURES';
   /** Position side */
-  side: 'LONG' | 'SHORT';
-  /** Position size */
-  size: string;
+  side: 'BUY' | 'SELL' | 'LONG' | 'SHORT';
+  /** Position size/quantity */
+  size?: string;
+  quantity?: string;
   /** Average entry price */
   entryPrice: string;
   /** Current mark price */
-  markPrice: string;
+  currentPrice?: string;
+  markPrice?: string;
   /** Position leverage */
-  leverage: number;
+  leverage?: number;
   /** Margin requirement */
   margin: string;
   /** Unrealized profit/loss */
-  unrealizedPnL: string;
+  unrealizedPnl?: string;
+  unrealizedPnL?: string;
+  /** Realized profit/loss */
+  realizedPnl?: string;
   /** Liquidation price threshold */
   liquidationPrice: string;
   /** Funding payment amount */
-  fundingPayment: string;
+  fundingPayment?: string;
   /** Last funding time */
-  lastFundingTime: number;
+  lastFundingTime?: number;
+  /** Position status */
+  status: 'ACTIVE' | 'CLOSED' | 'LIQUIDATED';
+  /** Position open timestamp */
+  openedAt: number;
+  /** Position close timestamp */
+  closedAt?: number;
 }
 
 /**
@@ -371,8 +390,8 @@ export interface Trade {
   orderId: string;
   /** Trading pair */
   pair: string;
-  /** Trade side */
-  side: 'BUY' | 'SELL';
+  /** Trade side - BUY/SELL for spot, LONG/SHORT for perpetuals */
+  side: 'BUY' | 'SELL' | 'LONG' | 'SHORT';
   /** Trade quantity */
   quantity: string;
   /** Execution price */
@@ -389,6 +408,16 @@ export interface Trade {
   timestamp: number;
   /** Whether buyer was the maker */
   isBuyerMaker: boolean;
+  /** Order type (MARKET, LIMIT, etc.) */
+  type?: 'MARKET' | 'LIMIT' | 'STOP_LOSS' | 'STOP_LIMIT' | 'TRAILING_STOP' | 'OCO' | 'ICEBERG' | 'TWAP' | 'VWAP';
+  /** Maker address for the trade */
+  maker?: string;
+  /** Taker address for the trade */
+  taker?: string;
+  /** Transaction hash on blockchain */
+  txHash?: string;
+  /** Trade execution status */
+  status?: 'PENDING' | 'COMPLETED' | 'FAILED';
   
   /** IPFS content ID for decentralized storage */
   ipfsCID: string;

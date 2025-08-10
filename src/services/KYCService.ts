@@ -726,9 +726,9 @@ export class DEXKYCService {
       currentTier: tier,
       isVerified: tier > DEXKYCTier.TIER_0,
       isInstitutional: tier === DEXKYCTier.TIER_4,
-      features: this.TIER_FEATURES[tier],
-      limits: this.TIER_LIMITS[tier],
-      feeTier: this.FEE_DISCOUNTS[tier],
+      features: this.TIER_FEATURES[tier as DEXKYCTier],
+      limits: this.TIER_LIMITS[tier as DEXKYCTier],
+      feeTier: this.FEE_DISCOUNTS[tier as DEXKYCTier],
       vipStatus: data.vipStatus || 'none',
       compliance: {
         canTradeUS: data.compliance?.canTradeUS || false,

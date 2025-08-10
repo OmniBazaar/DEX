@@ -1,7 +1,7 @@
 {
     "compilerOptions": {
         "target": "ES2022",
-        "lib": ["ES2020"],
+        "lib": ["ES2022", "DOM"],
         "allowJs": false,
         "skipLibCheck": true,
         "esModuleInterop": true,
@@ -15,7 +15,7 @@
         "noEmit": false,
         "declaration": true,
         "outDir": "./dist",
-        "rootDir": "./",
+        "rootDir": "./src",
         "sourceMap": true,
         "removeComments": false,
         "experimentalDecorators": true,
@@ -50,8 +50,7 @@
         "tsBuildInfoFile": "./dist/.tsbuildinfo"
     },
     "include": [
-        "src/**/*",
-        "tests/**/*"
+        "src/**/*"
     ],
     "exclude": [
         "node_modules",

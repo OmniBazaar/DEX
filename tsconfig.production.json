@@ -1,0 +1,34 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "rootDir": "../",
+        "baseUrl": "../",
+        "paths": {
+            "@dex/*": ["./DEX/src/*"],
+            "@validator/*": ["./Validator/src/*"],
+            "@coin/*": ["./Coin/src/*"],
+            "@wallet/*": ["./Wallet/src/*"],
+            "@bazaar/*": ["./Bazaar/src/*"]
+        },
+        "noEmit": false,
+        "outDir": "./dist",
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true
+    },
+    "include": [
+        "./src/**/*",
+        "../Validator/src/services/storage/IPFSStorageNetwork.ts",
+        "../Validator/src/services/chat/P2PChatNetwork.ts",
+        "../Validator/src/services/FeeService.ts",
+        "../Validator/src/services/BlockRewardService.ts",
+        "../Validator/src/services/ParticipationScoreService.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "dydx-reference",
+        "**/*.test.ts",
+        "**/*.spec.ts"
+    ]
+}

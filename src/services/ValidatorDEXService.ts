@@ -1,14 +1,14 @@
 /**
- * ValidatorDEXService - DEX integration with Avalanche Validator
+ * ValidatorDEXService - DEX integration with Omni Validator
  * 
  * Provides order book management, trade execution, and market data
- * through the Avalanche validator's GraphQL API.
+ * through the Omni validator's GraphQL API.
  */
 
 import { 
-  AvalancheValidatorClient, 
-  createAvalancheValidatorClient,
-  type AvalancheValidatorClientConfig
+  OmniValidatorClient, 
+  createOmniValidatorClient,
+  type OmniValidatorClientConfig
 } from '../client';
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger';
@@ -17,7 +17,7 @@ import type { UnifiedOrder as _UnifiedOrder } from '../types/config';
 /**
  * Configuration for ValidatorDEXService
  */
-export interface ValidatorDEXConfig extends AvalancheValidatorClientConfig {
+export interface ValidatorDEXConfig extends OmniValidatorClientConfig {
   /** Network identifier */
   networkId: string;
   /** Supported trading pairs */
@@ -109,7 +109,7 @@ export interface MarketData {
  */
 export class ValidatorDEXService {
   /** Avalanche validator client */
-  private client: AvalancheValidatorClient;
+  private client: OmniValidatorClient;
   /** Service configuration */
   private config: ValidatorDEXConfig;
   /** Initialization status */
@@ -125,7 +125,7 @@ export class ValidatorDEXService {
    */
   constructor(config: ValidatorDEXConfig) {
     this.config = config;
-    this.client = createAvalancheValidatorClient({
+    this.client = createOmniValidatorClient({
       validatorEndpoint: config.validatorEndpoint,
       ...(config.wsEndpoint ? { wsEndpoint: config.wsEndpoint } : {}),
       ...(config.apiKey ? { apiKey: config.apiKey } : {}),
