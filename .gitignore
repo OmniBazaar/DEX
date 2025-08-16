@@ -98,13 +98,10 @@ coverage.json
 
 # Temporary files
 *.tmp
-<<<<<<< HEAD
 *.temp
 
 # Reference code
 dydx-reference/
 uniswap-reference/
 
-=======
-*.temp 
->>>>>>> f0562249cfb0e3ac523bc6f08d791ae58af141c5
+*.claude
