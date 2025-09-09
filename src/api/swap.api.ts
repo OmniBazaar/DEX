@@ -56,7 +56,19 @@ export interface WithdrawRequest {
 }
 
 /**
+ * Authenticated request interface with user context
+ */
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+  };
+}
+
+/**
  * Create swap API router with smart contract integration
+ * @param orderBook - The decentralized order book instance
+ * @param contractService - The contract service for blockchain interactions
+ * @returns The configured Express router for swap endpoints
  */
 export function createSwapRouter(
   orderBook: DecentralizedOrderBook,
@@ -65,168 +77,181 @@ export function createSwapRouter(
   const router = Router();
 
   /**
-   * @api {post} /api/swap/deposit Deposit tokens to DEX
-   * @apiName DepositToDEX
-   * @apiGroup Swap
-   * @apiDescription Deposit tokens from wallet to DEX smart contract
-   * 
-   * @apiParam {String} token Token contract address
-   * @apiParam {String} amount Amount to deposit (in wei)
-   * 
-   * @apiSuccess {Boolean} success Operation success status
-   * @apiSuccess {String} txHash Transaction hash
-   * @apiSuccess {Number} blockNumber Block number
-   * @apiSuccess {String} balance Updated DEX balance
+   * Deposit tokens to DEX
+   * Deposit tokens from wallet to DEX smart contract for trading.
+   * @param req - Express request object with deposit parameters
+   * @param res - Express response object
+   * @returns void - Sends JSON response with transaction details
    */
   router.post('/deposit',
     authMiddleware,
     body('token').isEthereumAddress(),
     body('amount').isNumeric(),
-    async (req: Request, res: Response) => {
-      try {
-        const userId = (req as any).user?.id;
-        if (!userId) {
-          return res.status(401).json({ 
-            success: false, 
-            error: 'User not authenticated' 
+    (req: AuthenticatedRequest, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const user = req.user;
+          const userId = user?.id;
+          if (userId === null || userId === undefined) {
+            res.status(401).json({ 
+              success: false, 
+              error: 'User not authenticated' 
+            });
+            return;
+          }
+
+          const requestBody = req.body as Record<string, unknown>;
+          const token = requestBody.token as string;
+          const amount = requestBody.amount as string;
+
+          // Validate amount
+          if (BigInt(amount) <= 0n) {
+            res.status(400).json({
+              success: false,
+              error: 'Invalid amount'
+            });
+            return;
+          }
+
+          // Execute deposit on-chain
+          const result = await contractService.depositToDEX(
+            token,
+            amount,
+            userId
+          );
+
+          if (result.success !== true) {
+            res.status(400).json({
+              success: false,
+              error: result.error ?? 'Deposit failed'
+            });
+            return;
+          }
+
+          // Get updated balance
+          const balance = await contractService.getDEXBalance(userId, token);
+
+          logger.info('User deposited to DEX', {
+            userId,
+            token,
+            amount,
+            txHash: result.txHash
           });
-        }
 
-        const { token, amount } = req.body as DepositRequest;
-
-        // Validate amount
-        if (BigInt(amount) <= 0n) {
-          return res.status(400).json({
+          res.json({
+            success: true,
+            txHash: result.txHash,
+            blockNumber: result.blockNumber,
+            balance
+          });
+        } catch (error) {
+          logger.error('Deposit failed:', error);
+          res.status(500).json({
             success: false,
-            error: 'Invalid amount'
+            error: (error as Error).message
           });
         }
-
-        // Execute deposit on-chain
-        const result = await contractService.depositToDEX(
-          token,
-          amount,
-          userId
-        );
-
-        if (!result.success) {
-          return res.status(400).json({
-            success: false,
-            error: result.error || 'Deposit failed'
-          });
-        }
-
-        // Get updated balance
-        const balance = await contractService.getDEXBalance(userId, token);
-
-        logger.info('User deposited to DEX', {
-          userId,
-          token,
-          amount,
-          txHash: result.txHash
-        });
-
-        return res.json({
-          success: true,
-          txHash: result.txHash,
-          blockNumber: result.blockNumber,
-          balance
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Deposit failed:', error);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
-          error: (error as Error).message
+          error: 'Deposit operation failed'
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {post} /api/swap/withdraw Withdraw tokens from DEX
-   * @apiName WithdrawFromDEX
-   * @apiGroup Swap
-   * @apiDescription Withdraw tokens from DEX smart contract to wallet
-   * 
-   * @apiParam {String} token Token contract address
-   * @apiParam {String} amount Amount to withdraw (in wei)
+   * Withdraw tokens from DEX
+   * Withdraw tokens from DEX smart contract to wallet.
+   * @param req - Express request object with withdrawal parameters
+   * @param res - Express response object
+   * @returns void - Sends JSON response with transaction details
    */
   router.post('/withdraw',
     authMiddleware,
     body('token').isEthereumAddress(),
     body('amount').isNumeric(),
-    async (req: Request, res: Response) => {
-      try {
-        const userId = (req as any).user?.id;
-        if (!userId) {
-          return res.status(401).json({ 
-            success: false, 
-            error: 'User not authenticated' 
+    (req: AuthenticatedRequest, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const user = req.user;
+          const userId = user?.id;
+          if (userId === null || userId === undefined) {
+            res.status(401).json({ 
+              success: false, 
+              error: 'User not authenticated' 
+            });
+            return;
+          }
+
+          const requestBody = req.body as Record<string, unknown>;
+          const token = requestBody.token as string;
+          const amount = requestBody.amount as string;
+
+          // Check balance
+          const balance = await contractService.getDEXBalance(userId, token);
+          if (BigInt(balance) < BigInt(amount)) {
+            res.status(400).json({
+              success: false,
+              error: 'Insufficient balance'
+            });
+            return;
+          }
+
+          // Execute withdrawal on-chain
+          const result = await contractService.withdrawFromDEX(
+            token,
+            amount
+          );
+
+          if (result.success !== true) {
+            res.status(400).json({
+              success: false,
+              error: result.error ?? 'Withdrawal failed'
+            });
+            return;
+          }
+
+          // Get updated balance
+          const newBalance = await contractService.getDEXBalance(userId, token);
+
+          logger.info('User withdrew from DEX', {
+            userId,
+            token,
+            amount,
+            txHash: result.txHash
           });
-        }
 
-        const { token, amount } = req.body as WithdrawRequest;
-
-        // Check balance
-        const balance = await contractService.getDEXBalance(userId, token);
-        if (BigInt(balance) < BigInt(amount)) {
-          return res.status(400).json({
+          res.json({
+            success: true,
+            txHash: result.txHash,
+            blockNumber: result.blockNumber,
+            balance: newBalance
+          });
+        } catch (error) {
+          logger.error('Withdrawal failed:', error);
+          res.status(500).json({
             success: false,
-            error: 'Insufficient balance'
+            error: (error as Error).message
           });
         }
-
-        // Execute withdrawal on-chain
-        const result = await contractService.withdrawFromDEX(
-          token,
-          amount
-        );
-
-        if (!result.success) {
-          return res.status(400).json({
-            success: false,
-            error: result.error || 'Withdrawal failed'
-          });
-        }
-
-        // Get updated balance
-        const newBalance = await contractService.getDEXBalance(userId, token);
-
-        logger.info('User withdrew from DEX', {
-          userId,
-          token,
-          amount,
-          txHash: result.txHash
-        });
-
-        return res.json({
-          success: true,
-          txHash: result.txHash,
-          blockNumber: result.blockNumber,
-          balance: newBalance
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Withdrawal failed:', error);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
-          error: (error as Error).message
+          error: 'Withdrawal operation failed'
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {post} /api/swap/execute Execute token swap
-   * @apiName ExecuteSwap
-   * @apiGroup Swap
-   * @apiDescription Execute a token swap with on-chain settlement
-   * 
-   * @apiParam {String} tokenIn Input token address
-   * @apiParam {String} tokenOut Output token address
-   * @apiParam {String} amountIn Amount to swap
-   * @apiParam {String} [minAmountOut] Minimum output amount
-   * @apiParam {Number} [slippage=0.5] Slippage tolerance (%)
-   * @apiParam {Boolean} [usePrivacy=false] Use privacy features
+   * Execute token swap
+   * Execute a token swap with on-chain settlement.
+   * @param req - Express request object with swap parameters
+   * @param res - Express response object
+   * @returns void - Sends JSON response with swap result
    */
   router.post('/execute',
     authMiddleware,
@@ -236,213 +261,269 @@ export function createSwapRouter(
     body('minAmountOut').optional().isNumeric(),
     body('slippage').optional().isFloat({ min: 0, max: 100 }),
     body('usePrivacy').optional().isBoolean(),
-    async (req: Request, res: Response) => {
-      try {
-        const userId = (req as any).user?.id;
-        if (!userId) {
-          return res.status(401).json({ 
-            success: false, 
-            error: 'User not authenticated' 
-          });
-        }
-
-        const swapRequest = req.body as SwapRequest;
-        const pair = `${swapRequest.tokenIn}/${swapRequest.tokenOut}`;
-
-        // Create market order for the swap
-        const orderResult = await orderBook.placeOrder({
-          userId,
-          pair,
-          type: 'MARKET',
-          side: 'SELL',
-          quantity: swapRequest.amountIn,
-          timeInForce: 'IOC' // Immediate or cancel
-        });
-
-        if (!orderResult.success) {
-          return res.status(400).json({
-            success: false,
-            error: orderResult.message || 'Swap failed'
-          });
-        }
-
-        // Calculate output amount based on executed price
-        const executedPrice = parseFloat(orderResult.order.averagePrice || '0');
-        const amountOut = (parseFloat(swapRequest.amountIn) * executedPrice).toString();
-
-        // Check slippage
-        if (swapRequest.minAmountOut) {
-          if (BigInt(amountOut) < BigInt(swapRequest.minAmountOut)) {
-            // Cancel order due to slippage
-            await orderBook.cancelOrder(orderResult.orderId, userId);
-            return res.status(400).json({
-              success: false,
-              error: 'Slippage tolerance exceeded'
+    (req: AuthenticatedRequest, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const user = req.user;
+          const userId = user?.id;
+          if (userId === null || userId === undefined) {
+            res.status(401).json({ 
+              success: false, 
+              error: 'User not authenticated' 
             });
+            return;
           }
+
+          const swapRequest = req.body as SwapRequest;
+          const pair = `${swapRequest.tokenIn}/${swapRequest.tokenOut}`;
+
+          // Create market order for the swap
+          const orderResult = await orderBook.placeOrder({
+            userId,
+            pair,
+            type: 'MARKET',
+            side: 'SELL',
+            quantity: swapRequest.amountIn,
+            timeInForce: 'IOC' // Immediate or cancel
+          });
+
+          if (orderResult.success !== true) {
+            res.status(400).json({
+              success: false,
+              error: orderResult.message ?? 'Swap failed'
+            });
+            return;
+          }
+
+          // Calculate output amount based on executed price
+          const executedPrice = parseFloat(orderResult.order.averagePrice ?? '0');
+          const amountOut = (parseFloat(swapRequest.amountIn) * executedPrice).toString();
+
+          // Check slippage
+          if (swapRequest.minAmountOut !== null && swapRequest.minAmountOut !== undefined) {
+            if (BigInt(amountOut) < BigInt(swapRequest.minAmountOut)) {
+              // Cancel order due to slippage
+              await orderBook.cancelOrder(orderResult.orderId, userId);
+              res.status(400).json({
+                success: false,
+                error: 'Slippage tolerance exceeded'
+              });
+              return;
+            }
+          }
+
+          // Settle trade on-chain
+          const settlementSuccess = await orderBook.settleTradeOnChain(
+            userId,
+            'DEX_POOL', // Counterparty is the DEX liquidity pool
+            swapRequest.tokenOut,
+            amountOut,
+            orderResult.orderId
+          );
+
+          if (settlementSuccess !== true) {
+            logger.warn('On-chain settlement failed, using off-chain');
+          }
+
+          logger.info('Swap executed', {
+            userId,
+            pair,
+            amountIn: swapRequest.amountIn,
+            amountOut,
+            orderId: orderResult.orderId
+          });
+
+          res.json({
+            success: true,
+            orderId: orderResult.orderId,
+            amountIn: swapRequest.amountIn,
+            amountOut,
+            executedPrice,
+            fees: orderResult.fees
+          });
+        } catch (error) {
+          logger.error('Swap execution failed:', error);
+          res.status(500).json({
+            success: false,
+            error: (error as Error).message
+          });
         }
-
-        // Settle trade on-chain
-        const settlementSuccess = await orderBook.settleTradeOnChain(
-          userId,
-          'DEX_POOL', // Counterparty is the DEX liquidity pool
-          swapRequest.tokenOut,
-          amountOut,
-          orderResult.orderId
-        );
-
-        if (!settlementSuccess) {
-          logger.warn('On-chain settlement failed, using off-chain');
-        }
-
-        logger.info('Swap executed', {
-          userId,
-          pair,
-          amountIn: swapRequest.amountIn,
-          amountOut,
-          orderId: orderResult.orderId
-        });
-
-        return res.json({
-          success: true,
-          orderId: orderResult.orderId,
-          amountIn: swapRequest.amountIn,
-          amountOut,
-          executedPrice,
-          fees: orderResult.fees
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Swap execution failed:', error);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
-          error: (error as Error).message
+          error: 'Swap execution failed'
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {get} /api/swap/balance/:token Get DEX balance
-   * @apiName GetDEXBalance
-   * @apiGroup Swap
-   * @apiDescription Get user's balance for a specific token in the DEX
-   * 
-   * @apiParam {String} token Token contract address
+   * Get DEX balance
+   * Get user's balance for a specific token in the DEX.
+   * @param req - Express request object with token parameter
+   * @param res - Express response object
+   * @returns void - Sends JSON response with balance information
    */
   router.get('/balance/:token',
     authMiddleware,
     param('token').isEthereumAddress(),
-    async (req: Request, res: Response) => {
-      try {
-        const userId = (req as any).user?.id;
-        if (!userId) {
-          return res.status(401).json({ 
-            success: false, 
-            error: 'User not authenticated' 
+    (req: AuthenticatedRequest, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const user = req.user;
+          const userId = user?.id;
+          if (userId === null || userId === undefined) {
+            res.status(401).json({ 
+              success: false, 
+              error: 'User not authenticated' 
+            });
+            return;
+          }
+
+          const token = req.params.token;
+          if (token === null || token === undefined || token === '') {
+            res.status(400).json({
+              success: false,
+              error: 'Token parameter is required'
+            });
+            return;
+          }
+
+          const balance = await contractService.getDEXBalance(userId, token);
+
+          res.json({
+            success: true,
+            token,
+            balance,
+            formatted: ethers.formatEther(balance)
+          });
+        } catch (error) {
+          logger.error('Failed to get balance:', error);
+          res.status(500).json({
+            success: false,
+            error: (error as Error).message
           });
         }
-
-        const token = req.params.token!;
-        const balance = await contractService.getDEXBalance(userId, token);
-
-        return res.json({
-          success: true,
-          token,
-          balance,
-          formatted: ethers.formatEther(balance)
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Failed to get balance:', error);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
-          error: (error as Error).message
+          error: 'Failed to retrieve balance'
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {get} /api/swap/estimate Estimate swap output
-   * @apiName EstimateSwap
-   * @apiGroup Swap
-   * @apiDescription Estimate output amount for a swap
+   * Estimate swap output
+   * Estimate output amount for a swap based on current market conditions.
+   * @param req - Express request object with swap estimation parameters
+   * @param res - Express response object
+   * @returns void - Sends JSON response with swap estimation
    */
   router.get('/estimate',
     body('tokenIn').isString(),
     body('tokenOut').isString(),
     body('amountIn').isNumeric(),
-    async (req: Request, res: Response) => {
-      try {
-        const { tokenIn, tokenOut, amountIn } = req.body;
-        const pair = `${tokenIn}/${tokenOut}`;
-
-        // Get market depth to estimate price impact
-        const depth = await orderBook.getMarketDepth(pair, 10);
-        
-        // Calculate estimated output based on order book
-        let remainingAmount = parseFloat(amountIn);
-        let totalOutput = 0;
-        
-        for (const [price, volume] of depth.asks) {
-          const available = Math.min(remainingAmount, volume);
-          totalOutput += available * price;
-          remainingAmount -= available;
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const requestBody = req.body as Record<string, unknown>;
+          const tokenIn = requestBody.tokenIn as string;
+          const tokenOut = requestBody.tokenOut as string;
+          const amountIn = requestBody.amountIn as string;
           
-          if (remainingAmount <= 0) break;
+          const pair = `${tokenIn}/${tokenOut}`;
+
+          // Get market depth to estimate price impact
+          const depth = await orderBook.getMarketDepth(pair, 10);
+          
+          // Calculate estimated output based on order book
+          let remainingAmount = parseFloat(amountIn);
+          let totalOutput = 0;
+          
+          for (const [price, volume] of depth.asks) {
+            const available = Math.min(remainingAmount, volume);
+            totalOutput += available * price;
+            remainingAmount -= available;
+            
+            if (remainingAmount <= 0) break;
+          }
+
+          // Calculate price impact
+          const firstAsk = depth.asks[0];
+          const spotPrice = firstAsk !== null && firstAsk !== undefined ? firstAsk[0] : 0;
+          const averagePrice = totalOutput / parseFloat(amountIn);
+          const priceImpact = spotPrice > 0 ? ((averagePrice - spotPrice) / spotPrice) * 100 : 0;
+
+          // Calculate fees
+          const fees = parseFloat(amountIn) * 0.003; // 0.3% fee
+
+          res.json({
+            success: true,
+            amountIn,
+            estimatedOutput: (totalOutput - fees).toString(),
+            spotPrice: spotPrice.toString(),
+            averagePrice: averagePrice.toString(),
+            priceImpact: priceImpact.toFixed(2),
+            fees: fees.toString()
+          });
+        } catch (error) {
+          logger.error('Failed to estimate swap:', error);
+          res.status(500).json({
+            success: false,
+            error: (error as Error).message
+          });
         }
-
-        // Calculate price impact
-        const spotPrice = depth.asks[0]?.[0] || 0;
-        const averagePrice = totalOutput / parseFloat(amountIn);
-        const priceImpact = ((averagePrice - spotPrice) / spotPrice) * 100;
-
-        // Calculate fees
-        const fees = parseFloat(amountIn) * 0.003; // 0.3% fee
-
-        return res.json({
-          success: true,
-          amountIn,
-          estimatedOutput: (totalOutput - fees).toString(),
-          spotPrice: spotPrice.toString(),
-          averagePrice: averagePrice.toString(),
-          priceImpact: priceImpact.toFixed(2),
-          fees: fees.toString()
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Failed to estimate swap:', error);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
-          error: (error as Error).message
+          error: 'Failed to estimate swap'
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {get} /api/swap/gas/deposit Estimate deposit gas
-   * @apiName EstimateDepositGas
-   * @apiGroup Swap
+   * Estimate deposit gas
+   * Estimate gas cost for a token deposit operation.
+   * @param req - Express request object with deposit parameters
+   * @param res - Express response object
+   * @returns void - Sends JSON response with gas estimation
    */
   router.get('/gas/deposit',
     body('token').isEthereumAddress(),
     body('amount').isNumeric(),
-    async (req: Request, res: Response) => {
-      try {
-        const { token, amount } = req.body;
-        const gasEstimate = await contractService.estimateDepositGas(token, amount);
-        
-        return res.json({
-          success: true,
-          gasLimit: gasEstimate.toString(),
-          estimatedCost: ethers.formatEther(gasEstimate * 25n * 10n ** 9n) // 25 gwei
-        });
-      } catch (error) {
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const requestBody = req.body as Record<string, unknown>;
+          const token = requestBody.token as string;
+          const amount = requestBody.amount as string;
+          
+          const gasEstimate = await contractService.estimateDepositGas(token, amount);
+          
+          res.json({
+            success: true,
+            gasLimit: gasEstimate.toString(),
+            estimatedCost: ethers.formatEther(gasEstimate * 25n * 10n ** 9n) // 25 gwei
+          });
+        } catch (error) {
+          logger.error('Failed to estimate gas:', error);
+          res.status(500).json({
+            success: false,
+            error: (error as Error).message
+          });
+        }
+      }).catch((error) => {
         logger.error('Failed to estimate gas:', error);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
-          error: (error as Error).message
+          error: 'Failed to estimate gas cost'
         });
-      }
+      });
     }
   );
 

@@ -13,7 +13,7 @@ interface ValidationError {
   /** Error message */
   message: string;
   /** Invalid value provided */
-  value?: any;
+  value?: unknown;
 }
 
 /**
@@ -26,11 +26,12 @@ export const validateRequired = (fields: string[]) => {
     const errors: ValidationError[] = [];
     
     for (const field of fields) {
-      if (!req.body[field]) {
+      const body = req.body as Record<string, unknown>;
+      if (!(field in body) || body[field] === undefined || body[field] === null || body[field] === '') {
         errors.push({
           field,
           message: `${field} is required`,
-          value: req.body[field]
+          value: body[field]
         });
       }
     }
@@ -57,13 +58,15 @@ export const validateNumeric = (fields: string[]) => {
     const errors: ValidationError[] = [];
     
     for (const field of fields) {
-      if (req.body[field] !== undefined) {
-        const value = Number(req.body[field]);
+      const body = req.body as Record<string, unknown>;
+      if (field in body && body[field] !== undefined) {
+        const fieldValue = body[field];
+        const value = Number(fieldValue);
         if (isNaN(value)) {
           errors.push({
             field,
             message: `${field} must be a valid number`,
-            value: req.body[field]
+            value: fieldValue
           });
         }
       }
@@ -89,16 +92,20 @@ export const validateNumeric = (fields: string[]) => {
  */
 export const validateEnum = (field: string, allowedValues: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.body[field] && !allowedValues.includes(req.body[field])) {
-      res.status(400).json({
-        error: 'Validation failed',
-        errors: [{
-          field,
-          message: `${field} must be one of: ${allowedValues.join(', ')}`,
-          value: req.body[field]
-        }]
-      });
-      return;
+    const body = req.body as Record<string, unknown>;
+    if (field in body && body[field] !== undefined && body[field] !== null && body[field] !== '') {
+      const fieldValue = String(body[field]);
+      if (!allowedValues.includes(fieldValue)) {
+        res.status(400).json({
+          error: 'Validation failed',
+          errors: [{
+            field,
+            message: `${field} must be one of: ${allowedValues.join(', ')}`,
+            value: fieldValue
+          }]
+        });
+        return;
+      }
     }
     
     next();
@@ -112,15 +119,17 @@ export const validateEnum = (field: string, allowedValues: string[]) => {
  */
 export const validateLeverage = (maxLeverage: number = 100) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.body.leverage) {
-      const leverage = Number(req.body.leverage);
+    const body = req.body as Record<string, unknown>;
+    if ('leverage' in body && body.leverage !== undefined && body.leverage !== null && body.leverage !== '') {
+      const leverageValue = body.leverage;
+      const leverage = Number(leverageValue);
       if (leverage < 1 || leverage > maxLeverage) {
         res.status(400).json({
           error: 'Validation failed',
           errors: [{
             field: 'leverage',
             message: `Leverage must be between 1 and ${maxLeverage}`,
-            value: req.body.leverage
+            value: leverageValue
           }]
         });
         return;

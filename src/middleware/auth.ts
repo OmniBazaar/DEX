@@ -27,7 +27,7 @@ export interface AuthRequest extends Request {
 }
 
 // Get JWT secret from environment or use secure default for development
-const JWT_SECRET = process.env.JWT_SECRET || 'omnibazaar-dex-secret-key-change-in-production';
+const JWT_SECRET = process.env['JWT_SECRET'] ?? 'omnibazaar-dex-secret-key-change-in-production';
 
 /**
  * Authentication middleware
@@ -44,7 +44,7 @@ export const authMiddleware = (
   // Get token from header
   const authHeader = req.headers.authorization;
   
-  if (!authHeader) {
+  if (typeof authHeader !== 'string' || authHeader.length === 0) {
     res.status(401).json({ error: 'No authorization header' });
     return;
   }
@@ -52,7 +52,7 @@ export const authMiddleware = (
   if (authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
     
-    if (!token) {
+    if (token.length === 0) {
       res.status(401).json({ error: 'No token provided' });
       return;
     }
@@ -105,6 +105,9 @@ export const generateToken = (userId: string, walletAddress: string): string => 
 /**
  * Optional authentication middleware
  * Allows unauthenticated access but adds user info if available
+ * @param req - Express request with optional user info
+ * @param _res - Express response (unused)
+ * @param next - Next middleware function
  */
 export const optionalAuth = (
   req: AuthRequest,
@@ -113,9 +116,9 @@ export const optionalAuth = (
 ): void => {
   const authHeader = req.headers.authorization;
   
-  if (authHeader && authHeader.startsWith('Bearer ')) {
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    if (token) {
+    if (token.length > 0) {
       try {
         // Try to verify JWT token
         const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;

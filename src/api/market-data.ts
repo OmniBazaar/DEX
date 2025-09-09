@@ -101,6 +101,9 @@ interface TradeData {
   isBuyerMaker: boolean;
 }
 
+/**
+ * Candle/OHLCV data structure
+ */
 interface CandleData {
   openTime: number;
   open: number;
@@ -115,12 +118,18 @@ interface CandleData {
   quoteAssetVolume: number;
 }
 
+/**
+ * Market depth data structure
+ */
 interface MarketDepthData {
   lastUpdateId: number;
   bids: OrderBookLevel[];
   asks: OrderBookLevel[];
 }
 
+/**
+ * Perpetual contract information
+ */
 interface PerpetualContract {
   symbol: string;
   baseAsset: string;
@@ -136,6 +145,9 @@ interface PerpetualContract {
   status: string;
 }
 
+/**
+ * Funding rate history entry
+ */
 interface FundingRateEntry {
   symbol: string;
   fundingRate: number;
@@ -144,6 +156,9 @@ interface FundingRateEntry {
   indexPrice: number;
 }
 
+/**
+ * Market statistics data
+ */
 interface MarketStatistics {
   totalVolume24h: number;
   totalTrades24h: number;
@@ -156,19 +171,27 @@ interface MarketStatistics {
   timestamp: number;
 }
 
+/**
+ * Chart options for historical data
+ */
 interface ChartOptions {
   startTime: Date;
   endTime: Date;
   limit: number;
 }
 
+/**
+ * Funding rate query options
+ */
 interface FundingRateOptions {
   startTime: Date;
   endTime: Date;
   limit: number;
 }
 
-// TODO: Replace with actual DecentralizedOrderBook implementation
+/**
+ * Decentralized order book interface
+ */
 interface DecentralizedOrderBook {
   getTradingPairs(): Promise<TradingPair[]>;
   getOrderBook(symbol: string, depth: number): Promise<OrderBookData>;
@@ -201,32 +224,40 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get all available trading pairs
    * GET /api/v1/market-data/pairs
    */
-  router.get('/pairs', async (_req: Request, res: Response) => {
-    try {
-      const pairs = await orderBook.getTradingPairs();
+  router.get('/pairs', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const pairs = await orderBook.getTradingPairs();
 
-      return res.json({
-        pairs: pairs.map((pair: TradingPair) => ({
-          symbol: pair.symbol,
-          baseAsset: pair.baseAsset,
-          quoteAsset: pair.quoteAsset,
-          status: pair.status,
-          minOrderSize: pair.minOrderSize,
-          maxOrderSize: pair.maxOrderSize,
-          priceIncrement: pair.priceIncrement,
-          quantityIncrement: pair.quantityIncrement,
-          makerFee: pair.makerFee,
-          takerFee: pair.takerFee
-        }))
-      });
+        res.json({
+          pairs: pairs.map((pair: TradingPair) => ({
+            symbol: pair.symbol,
+            baseAsset: pair.baseAsset,
+            quoteAsset: pair.quoteAsset,
+            status: pair.status,
+            minOrderSize: pair.minOrderSize,
+            maxOrderSize: pair.maxOrderSize,
+            priceIncrement: pair.priceIncrement,
+            quantityIncrement: pair.quantityIncrement,
+            makerFee: pair.makerFee,
+            takerFee: pair.takerFee
+          }))
+        });
 
-    } catch (error) {
+      } catch (error) {
+        logger.error('Error getting trading pairs:', error);
+        res.status(500).json({
+          error: 'Failed to get trading pairs',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting trading pairs:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get trading pairs',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
@@ -238,28 +269,44 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
       param('pair').isString().notEmpty(),
       query('limit').optional().isInt({ min: 1, max: 500 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const { pair } = req.params;
-        const _limit = parseInt(req.query['limit'] as string) || 100;
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { pair } = req.params;
+          const limitParam = req.query['limit'] as string;
+          const _limit = (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 100;
 
-        const orderBookData = await orderBook.getOrderBook(pair || '', _limit);
+          if (pair === undefined || pair === '') {
+            res.status(400).json({
+              error: 'Trading pair is required'
+            });
+            return;
+          }
 
-        return res.json({
-          pair,
-          bids: orderBookData?.bids?.map((level: OrderBookLevel) => [level.price, level.quantity]) || [],
-          asks: orderBookData?.asks?.map((level: OrderBookLevel) => [level.price, level.quantity]) || [],
-          timestamp: orderBookData?.timestamp || Date.now(),
-          sequence: orderBookData?.sequence || 0
-        });
+          const orderBookData = await orderBook.getOrderBook(pair, _limit);
 
-      } catch (error) {
+          res.json({
+            pair,
+            bids: orderBookData.bids.map((level: OrderBookLevel) => [level.price, level.quantity]),
+            asks: orderBookData.asks.map((level: OrderBookLevel) => [level.price, level.quantity]),
+            timestamp: orderBookData.timestamp,
+            sequence: orderBookData.sequence
+          });
+
+        } catch (error) {
+          logger.error('Error getting order book:', error);
+          res.status(500).json({
+            error: 'Failed to get order book',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting order book:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get order book',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -269,36 +316,51 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    */
   router.get('/ticker/:pair',
     [param('pair').isString().notEmpty()],
-    async (req: Request, res: Response) => {
-      try {
-        const { pair } = req.params;
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { pair } = req.params;
 
-        const ticker = await orderBook.getTicker(pair || '');
+          if (pair === undefined || pair === '') {
+            res.status(400).json({
+              error: 'Trading pair is required'
+            });
+            return;
+          }
 
-        return res.json({
-          symbol: ticker.symbol,
-          price: ticker.lastPrice,
-          priceChange: ticker.priceChange,
-          priceChangePercent: ticker.priceChangePercent,
-          high: ticker.high24h,
-          low: ticker.low24h,
-          volume: ticker.volume24h,
-          quoteVolume: ticker.quoteVolume24h,
-          openPrice: ticker.openPrice,
-          closePrice: ticker.closePrice,
-          firstId: ticker.firstTradeId,
-          lastId: ticker.lastTradeId,
-          count: ticker.tradeCount,
-          timestamp: ticker.timestamp
-        });
+          const ticker = await orderBook.getTicker(pair);
 
-      } catch (error) {
+          res.json({
+            symbol: ticker.symbol,
+            price: ticker.lastPrice,
+            priceChange: ticker.priceChange,
+            priceChangePercent: ticker.priceChangePercent,
+            high: ticker.high24h,
+            low: ticker.low24h,
+            volume: ticker.volume24h,
+            quoteVolume: ticker.quoteVolume24h,
+            openPrice: ticker.openPrice,
+            closePrice: ticker.closePrice,
+            firstId: ticker.firstTradeId,
+            lastId: ticker.lastTradeId,
+            count: ticker.tradeCount,
+            timestamp: ticker.timestamp
+          });
+
+        } catch (error) {
+          logger.error('Error getting ticker:', error);
+          res.status(500).json({
+            error: 'Failed to get ticker',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting ticker:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get ticker',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -306,12 +368,12 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get all tickers
    * GET /api/v1/market-data/tickers
    */
-  router.get('/tickers', async (_req: Request, res: Response) => {
+  router.get('/tickers', (_req: Request, res: Response): void => {
     try {
-      // TODO: Add getAllTickers method to interface
-      const tickers: TickerData[] = []; // await orderBook.getAllTickers();
+      // TODO: Add getAllTickers method to interface when implemented
+      const tickers: TickerData[] = [];
 
-      return res.json(
+      res.json(
         tickers.map((ticker: TickerData) => ({
           symbol: ticker.symbol,
           price: ticker.lastPrice,
@@ -327,7 +389,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
 
     } catch (error) {
       logger.error('Error getting all tickers:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get tickers',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -343,31 +405,47 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
       param('pair').isString().notEmpty(),
       query('limit').optional().isInt({ min: 1, max: 1000 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const { pair } = req.params;
-        const limit = parseInt(req.query['limit'] as string) || 100;
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { pair } = req.params;
+          const limitParam = req.query['limit'] as string;
+          const limit = (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 100;
 
-        const trades = await orderBook.getRecentTrades(pair || '', limit);
+          if (pair === undefined || pair === '') {
+            res.status(400).json({
+              error: 'Trading pair is required'
+            });
+            return;
+          }
 
-        return res.json(
-          trades.map((trade: TradeData) => ({
-            id: trade.id,
-            price: trade.price,
-            quantity: trade.quantity,
-            quoteQuantity: trade.quoteQuantity,
-            time: trade.timestamp,
-            isBuyerMaker: trade.isBuyerMaker
-          }))
-        );
+          const trades = await orderBook.getRecentTrades(pair, limit);
 
-      } catch (error) {
+          res.json(
+            trades.map((trade: TradeData) => ({
+              id: trade.id,
+              price: trade.price,
+              quantity: trade.quantity,
+              quoteQuantity: trade.quoteQuantity,
+              time: trade.timestamp,
+              isBuyerMaker: trade.isBuyerMaker
+            }))
+          );
+
+        } catch (error) {
+          logger.error('Error getting recent trades:', error);
+          res.status(500).json({
+            error: 'Failed to get recent trades',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting recent trades:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get recent trades',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -383,51 +461,68 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
       query('endTime').optional().isISO8601().toDate(),
       query('limit').optional().isInt({ min: 1, max: 1000 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(400).json({
-            error: 'Validation failed',
-            details: errors.array()
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const errors = validationResult(req);
+          if (!errors.isEmpty()) {
+            res.status(400).json({
+              error: 'Validation failed',
+              details: errors.array()
+            });
+            return;
+          }
+
+          const { pair } = req.params;
+          const interval = req.query['interval'] as string;
+          const startTime = new Date(req.query['startTime'] as string);
+          const endTime = new Date(req.query['endTime'] as string);
+          const limitParam = req.query['limit'] as string;
+          const limit = (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 500;
+
+          if (pair === undefined || pair === '') {
+            res.status(400).json({
+              error: 'Trading pair is required'
+            });
+            return;
+          }
+
+          const candles = await orderBook.getCandles(pair, interval, {
+            startTime,
+            endTime,
+            limit
+          });
+
+          res.json(
+            candles.map((candle: CandleData) => [
+              candle.openTime,
+              candle.open,
+              candle.high,
+              candle.low,
+              candle.close,
+              candle.volume,
+              candle.closeTime,
+              candle.quoteVolume,
+              candle.trades,
+              candle.baseAssetVolume,
+              candle.quoteAssetVolume
+            ])
+          );
+
+        } catch (error) {
+          logger.error('Error getting candles:', error);
+          res.status(500).json({
+            error: 'Failed to get candles',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        const { pair } = req.params;
-        const interval = req.query['interval'] as string;
-        const startTime = new Date(req.query['startTime'] as string);
-        const endTime = new Date(req.query['endTime'] as string);
-        const limit = parseInt(req.query['limit'] as string) || 500;
-
-        const candles = await orderBook.getCandles(pair || '', interval, {
-          startTime,
-          endTime,
-          limit
-        });
-
-        return res.json(
-          candles.map((candle: CandleData) => [
-            candle.openTime,
-            candle.open,
-            candle.high,
-            candle.low,
-            candle.close,
-            candle.volume,
-            candle.closeTime,
-            candle.quoteVolume,
-            candle.trades,
-            candle.baseAssetVolume,
-            candle.quoteAssetVolume
-          ])
-        );
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error getting candles:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get candles',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -440,26 +535,42 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
       param('pair').isString().notEmpty(),
       query('limit').optional().isIn(['5', '10', '20', '50', '100', '500', '1000'])
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const { pair } = req.params;
-        const limit = parseInt(req.query['limit'] as string) || 100;
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { pair } = req.params;
+          const limitParam = req.query['limit'] as string;
+          const limit = (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 100;
 
-        const depth = await orderBook.getMarketDepth(pair || '', limit);
+          if (pair === undefined || pair === '') {
+            res.status(400).json({
+              error: 'Trading pair is required'
+            });
+            return;
+          }
 
-        return res.json({
-          lastUpdateId: depth.lastUpdateId,
-          bids: depth.bids?.map((level: OrderBookLevel) => [level.price, level.quantity]) || [],
-          asks: depth.asks?.map((level: OrderBookLevel) => [level.price, level.quantity]) || []
-        });
+          const depth = await orderBook.getMarketDepth(pair, limit);
 
-      } catch (error) {
+          res.json({
+            lastUpdateId: depth.lastUpdateId,
+            bids: depth.bids.map((level: OrderBookLevel) => [level.price, level.quantity]),
+            asks: depth.asks.map((level: OrderBookLevel) => [level.price, level.quantity])
+          });
+
+        } catch (error) {
+          logger.error('Error getting market depth:', error);
+          res.status(500).json({
+            error: 'Failed to get market depth',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting market depth:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get market depth',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -467,34 +578,42 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get perpetual contract information
    * GET /api/v1/market-data/perpetuals
    */
-  router.get('/perpetuals', async (_req: Request, res: Response) => {
-    try {
-      const perpetuals = await orderBook.getPerpetualContracts();
+  router.get('/perpetuals', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const perpetuals = await orderBook.getPerpetualContracts();
 
-      return res.json(
-        perpetuals.map((contract: PerpetualContract) => ({
-          symbol: contract.symbol,
-          baseAsset: contract.baseAsset,
-          quoteAsset: contract.quoteAsset,
-          markPrice: contract.markPrice,
-          indexPrice: contract.indexPrice,
-          lastFundingRate: contract.lastFundingRate,
-          nextFundingTime: contract.nextFundingTime,
-          interestRate: contract.interestRate,
-          premiumIndex: contract.premiumIndex,
-          maxLeverage: contract.maxLeverage,
-          minOrderSize: contract.minOrderSize,
-          status: contract.status
-        }))
-      );
+        res.json(
+          perpetuals.map((contract: PerpetualContract) => ({
+            symbol: contract.symbol,
+            baseAsset: contract.baseAsset,
+            quoteAsset: contract.quoteAsset,
+            markPrice: contract.markPrice,
+            indexPrice: contract.indexPrice,
+            lastFundingRate: contract.lastFundingRate,
+            nextFundingTime: contract.nextFundingTime,
+            interestRate: contract.interestRate,
+            premiumIndex: contract.premiumIndex,
+            maxLeverage: contract.maxLeverage,
+            minOrderSize: contract.minOrderSize,
+            status: contract.status
+          }))
+        );
 
-    } catch (error) {
+      } catch (error) {
+        logger.error('Error getting perpetual contracts:', error);
+        res.status(500).json({
+          error: 'Failed to get perpetual contracts',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting perpetual contracts:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get perpetual contracts',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
@@ -508,36 +627,52 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
       query('endTime').optional().isISO8601().toDate(),
       query('limit').optional().isInt({ min: 1, max: 500 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const { symbol } = req.params;
-        const startTime = new Date(req.query['startTime'] as string);
-        const endTime = new Date(req.query['endTime'] as string);
-        const limit = parseInt(req.query['limit'] as string) || 100;
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { symbol } = req.params;
+          const startTime = new Date(req.query['startTime'] as string);
+          const endTime = new Date(req.query['endTime'] as string);
+          const limitParam = req.query['limit'] as string;
+          const limit = (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 100;
 
-        const fundingHistory = await orderBook.getFundingRateHistory(symbol || '', {
-          startTime,
-          endTime,
-          limit
-        });
+          if (symbol === undefined || symbol === '') {
+            res.status(400).json({
+              error: 'Symbol is required'
+            });
+            return;
+          }
 
-        return res.json(
-          fundingHistory.map((entry: FundingRateEntry) => ({
-            symbol: entry.symbol,
-            fundingRate: entry.fundingRate,
-            fundingTime: entry.fundingTime,
-            markPrice: entry.markPrice,
-            indexPrice: entry.indexPrice
-          }))
-        );
+          const fundingHistory = await orderBook.getFundingRateHistory(symbol, {
+            startTime,
+            endTime,
+            limit
+          });
 
-      } catch (error) {
+          res.json(
+            fundingHistory.map((entry: FundingRateEntry) => ({
+              symbol: entry.symbol,
+              fundingRate: entry.fundingRate,
+              fundingTime: entry.fundingTime,
+              markPrice: entry.markPrice,
+              indexPrice: entry.indexPrice
+            }))
+          );
+
+        } catch (error) {
+          logger.error('Error getting funding rate history:', error);
+          res.status(500).json({
+            error: 'Failed to get funding rate history',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting funding rate history:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get funding rate history',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -545,30 +680,38 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * Get market statistics
    * GET /api/v1/market-data/stats
    */
-  router.get('/stats', async (_req: Request, res: Response) => {
-    try {
-      const stats = await orderBook.getMarketStatistics();
+  router.get('/stats', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const stats = await orderBook.getMarketStatistics();
 
-      return res.json({
-        totalVolume24h: stats.totalVolume24h,
-        totalTrades24h: stats.totalTrades24h,
-        activePairs: stats.activePairs,
-        topGainers: stats.topGainers,
-        topLosers: stats.topLosers,
-        totalValueLocked: stats.totalValueLocked,
-        networkFees24h: stats.networkFees24h,
-        validatorCount: stats.activeValidators,
-        timestamp: stats.timestamp
-      });
+        res.json({
+          totalVolume24h: stats.totalVolume24h,
+          totalTrades24h: stats.totalTrades24h,
+          activePairs: stats.activePairs,
+          topGainers: stats.topGainers,
+          topLosers: stats.topLosers,
+          totalValueLocked: stats.totalValueLocked,
+          networkFees24h: stats.networkFees24h,
+          validatorCount: stats.activeValidators,
+          timestamp: stats.timestamp
+        });
 
-    } catch (error) {
+      } catch (error) {
+        logger.error('Error getting market statistics:', error);
+        res.status(500).json({
+          error: 'Failed to get market statistics',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting market statistics:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get market statistics',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   return router;
-} 
+}

@@ -68,6 +68,11 @@ interface UnifiedValidatorNode {
   getPeers(): Promise<ValidatorPeer[]>;
 }
 
+/**
+ * Create validator API routes
+ * @param validatorNode - Unified validator node instance
+ * @returns Express router with validator endpoints
+ */
 export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Router {
   const router = Router();
 
@@ -75,85 +80,125 @@ export function createValidatorRoutes(validatorNode: UnifiedValidatorNode): Rout
    * Get validator status
    * GET /api/v1/validator/status
    */
-  router.get('/status', async (_req: Request, res: Response) => {
+  router.get('/status', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
     try {
       const status = await validatorNode.getHealthStatus();
-      return res.json(status);
-    } catch (error) {
+        res.json(status);
+      } catch (error) {
+        logger.error('Error getting validator status:', error);
+        res.status(500).json({
+          error: 'Failed to get validator status',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting validator status:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get validator status',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
    * Get resource usage
    * GET /api/v1/validator/resources
    */
-  router.get('/resources', async (_req: Request, res: Response) => {
-    try {
-      const resources = await validatorNode.getResourceUsage();
-      return res.json(resources);
-    } catch (error) {
+  router.get('/resources', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const resources = await validatorNode.getResourceUsage();
+        res.json(resources);
+      } catch (error) {
+        logger.error('Error getting resource usage:', error);
+        res.status(500).json({
+          error: 'Failed to get resource usage',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting resource usage:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get resource usage',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
    * Get validator network information
    * GET /api/v1/validator/network
    */
-  router.get('/network', async (_req: Request, res: Response) => {
-    try {
-      const networkInfo = await validatorNode.getNetworkInfo();
-      return res.json(networkInfo);
-    } catch (error) {
+  router.get('/network', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const networkInfo = await validatorNode.getNetworkInfo();
+        res.json(networkInfo);
+      } catch (error) {
+        logger.error('Error getting network information:', error);
+        res.status(500).json({
+          error: 'Failed to get network information',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting network information:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get network information',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
    * Get validator peers
    * GET /api/v1/validator/peers
    */
-  router.get('/peers', async (_req: Request, res: Response) => {
-    try {
-      const peers = await validatorNode.getPeers();
-      return res.json({ peers });
-    } catch (error) {
+  router.get('/peers', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const peers = await validatorNode.getPeers();
+        res.json({ peers });
+      } catch (error) {
+        logger.error('Error getting validator peers:', error);
+        res.status(500).json({
+          error: 'Failed to get validator peers',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting validator peers:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get validator peers',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
    * Get validator health
    * GET /api/v1/validator/health
    */
-  router.get('/health', async (_req: Request, res: Response) => {
-    try {
-      const health = await validatorNode.getHealthStatus();
-      return res.json(health);
-    } catch (error) {
+  router.get('/health', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const health = await validatorNode.getHealthStatus();
+        res.json(health);
+      } catch (error) {
+        logger.error('Error getting validator health:', error);
+        res.status(500).json({
+          error: 'Failed to get validator health',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting validator health:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get validator health',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   return router;

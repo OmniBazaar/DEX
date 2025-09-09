@@ -8,47 +8,93 @@
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 
+/**
+ * Performance metrics for individual operations
+ */
 export interface PerformanceMetrics {
+  /** Operation identifier */
   operation: string;
+  /** Storage tier used for the operation */
   storageType: 'hot' | 'warm' | 'cold' | 'hybrid';
-  latency: number; // milliseconds
+  /** Operation latency in milliseconds */
+  latency: number;
+  /** Whether the operation succeeded */
   success: boolean;
+  /** Timestamp when the operation completed */
   timestamp: number;
+  /** Optional metadata about the operation */
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Aggregated performance metrics for analysis
+ */
 export interface AggregatedMetrics {
+  /** Operation identifier */
   operation: string;
+  /** Total number of operations */
   count: number;
+  /** Average latency in milliseconds */
   avgLatency: number;
+  /** Minimum latency observed */
   minLatency: number;
+  /** Maximum latency observed */
   maxLatency: number;
+  /** 50th percentile latency */
   p50Latency: number;
+  /** 95th percentile latency */
   p95Latency: number;
+  /** 99th percentile latency */
   p99Latency: number;
+  /** Success rate (0-1) */
   successRate: number;
-  throughput: number; // operations per second
+  /** Operations per second */
+  throughput: number;
 }
 
+/**
+ * Comprehensive performance report
+ */
 export interface PerformanceReport {
+  /** Report generation timestamp */
   timestamp: number;
+  /** Overall performance summary */
   summary: {
+    /** Total operations tracked */
     totalOperations: number;
+    /** Average latency across all operations */
     avgLatency: number;
+    /** Overall success rate */
     successRate: number;
+    /** Total throughput */
     throughput: number;
   };
+  /** Metrics grouped by storage type */
   byStorageType: Record<string, AggregatedMetrics[]>;
+  /** Metrics grouped by operation type */
   byOperation: Record<string, AggregatedMetrics>;
+  /** Performance improvement recommendations */
   recommendations: string[];
 }
 
+/**
+ * Performance monitoring system for DEX operations
+ * Tracks latency, throughput, and success rates across storage tiers
+ */
 export class PerformanceMonitor extends EventEmitter {
+  /** Array of performance metrics */
   private metrics: PerformanceMetrics[] = [];
+  /** Maximum number of metrics to keep in memory */
   private maxMetricsSize = 10000;
-  private aggregationInterval = 60000; // 1 minute
+  /** Interval for aggregating metrics (1 minute) */
+  private aggregationInterval = 60000;
+  /** Timer for periodic aggregation */
   private aggregationTimer?: ReturnType<typeof setInterval>;
 
+  /**
+   * Creates a new PerformanceMonitor instance
+   * Automatically starts metric aggregation
+   */
   constructor() {
     super();
     this.startAggregation();
@@ -56,6 +102,7 @@ export class PerformanceMonitor extends EventEmitter {
 
   /**
    * Record a performance metric
+   * @param metric - Performance metric to record
    */
   recordMetric(metric: PerformanceMetrics): void {
     this.metrics.push(metric);
@@ -73,7 +120,11 @@ export class PerformanceMonitor extends EventEmitter {
   }
 
   /**
-   * Time an async operation
+   * Time an async operation and record its performance metrics
+   * @param operation - Operation identifier
+   * @param storageType - Storage tier being used
+   * @param fn - Async function to time
+   * @returns Result of the timed operation
    */
   async timeOperation<T>(
     operation: string,
@@ -103,14 +154,17 @@ export class PerformanceMonitor extends EventEmitter {
 
   /**
    * Get current performance statistics
+   * @param operation - Optional operation filter
+   * @param timeWindow - Optional time window in milliseconds
+   * @returns Array of aggregated metrics
    */
   getStats(operation?: string, timeWindow?: number): AggregatedMetrics[] {
     const now = Date.now();
-    const windowStart = timeWindow ? now - timeWindow : 0;
+    const windowStart = (typeof timeWindow === 'number' && timeWindow > 0) ? now - timeWindow : 0;
     
     // Filter metrics
     let filteredMetrics = this.metrics.filter(m => m.timestamp >= windowStart);
-    if (operation) {
+    if (typeof operation === 'string' && operation.length > 0) {
       filteredMetrics = filteredMetrics.filter(m => m.operation === operation);
     }
     
@@ -121,7 +175,10 @@ export class PerformanceMonitor extends EventEmitter {
       if (!grouped.has(key)) {
         grouped.set(key, []);
       }
-      grouped.get(key)!.push(metric);
+      const group = grouped.get(key);
+      if (group !== undefined) {
+        group.push(metric);
+      }
     }
     
     // Calculate aggregated metrics
@@ -130,14 +187,17 @@ export class PerformanceMonitor extends EventEmitter {
       const latencies = metrics.map(m => m.latency).sort((a, b) => a - b);
       const successCount = metrics.filter(m => m.success).length;
       
-      const timeSpan = (metrics[metrics.length - 1]!.timestamp - metrics[0]!.timestamp) / 1000 || 1;
+      const lastMetric = metrics[metrics.length - 1];
+      const firstMetric = metrics[0];
+      const timeDiff = (lastMetric !== undefined && firstMetric !== undefined) ? (lastMetric.timestamp - firstMetric.timestamp) / 1000 : 0;
+      const timeSpan = timeDiff > 0 ? timeDiff : 1;
       
       results.push({
         operation: op,
         count: metrics.length,
         avgLatency: latencies.reduce((a, b) => a + b, 0) / latencies.length,
         minLatency: latencies[0] ?? 0,
-        maxLatency: latencies[latencies.length - 1] || 0,
+        maxLatency: (latencies.length > 0 ? latencies[latencies.length - 1] : undefined) ?? 0,
         p50Latency: this.percentile(latencies, 0.5),
         p95Latency: this.percentile(latencies, 0.95),
         p99Latency: this.percentile(latencies, 0.99),
@@ -151,6 +211,7 @@ export class PerformanceMonitor extends EventEmitter {
 
   /**
    * Check performance thresholds and emit warnings
+   * @param metric - Performance metric to check
    */
   private checkThresholds(metric: PerformanceMetrics): void {
     const thresholds = {
@@ -192,12 +253,16 @@ export class PerformanceMonitor extends EventEmitter {
   }
 
   /**
-   * Calculate percentile
+   * Calculate percentile from sorted array
+   * @param sortedArray - Array of values sorted in ascending order
+   * @param p - Percentile to calculate (0-1)
+   * @returns Percentile value
    */
   private percentile(sortedArray: number[], p: number): number {
     if (sortedArray.length === 0) return 0;
     const index = Math.ceil(sortedArray.length * p) - 1;
-    return sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))]!;
+    const value = sortedArray[Math.max(0, Math.min(index, sortedArray.length - 1))];
+    return value ?? 0;
   }
 
   /**
@@ -223,7 +288,8 @@ export class PerformanceMonitor extends EventEmitter {
   }
 
   /**
-   * Get performance report
+   * Get comprehensive performance report
+   * @returns Complete performance report with metrics and recommendations
    */
   getPerformanceReport(): PerformanceReport {
     const allStats = this.getStats();
@@ -241,8 +307,8 @@ export class PerformanceMonitor extends EventEmitter {
       timestamp: Date.now(),
       summary: {
         totalOperations: this.metrics.length,
-        avgLatency: allStats.reduce((sum, stat) => sum + stat.avgLatency, 0) / allStats.length || 0,
-        successRate: allStats.reduce((sum, stat) => sum + stat.successRate, 0) / allStats.length || 0,
+        avgLatency: (allStats.length > 0 ? allStats.reduce((sum, stat) => sum + stat.avgLatency, 0) / allStats.length : 0),
+        successRate: (allStats.length > 0 ? allStats.reduce((sum, stat) => sum + stat.successRate, 0) / allStats.length : 0),
         throughput: allStats.reduce((sum, stat) => sum + stat.throughput, 0)
       },
       byStorageType: Object.fromEntries(storageStats),
@@ -252,7 +318,9 @@ export class PerformanceMonitor extends EventEmitter {
   }
 
   /**
-   * Get performance recommendations
+   * Get performance recommendations based on metrics
+   * @param stats - Array of aggregated metrics to analyze
+   * @returns Array of recommendation strings
    */
   private getRecommendations(stats: AggregatedMetrics[]): string[] {
     const recommendations: string[] = [];
@@ -284,7 +352,8 @@ export class PerformanceMonitor extends EventEmitter {
   }
 
   /**
-   * Export metrics for analysis
+   * Export all metrics for external analysis
+   * @returns Copy of all performance metrics
    */
   exportMetrics(): PerformanceMetrics[] {
     return [...this.metrics];
@@ -302,7 +371,7 @@ export class PerformanceMonitor extends EventEmitter {
    * Shutdown monitor
    */
   shutdown(): void {
-    if (this.aggregationTimer) {
+    if (this.aggregationTimer !== undefined) {
       clearInterval(this.aggregationTimer);
     }
     this.removeAllListeners();
@@ -310,5 +379,7 @@ export class PerformanceMonitor extends EventEmitter {
   }
 }
 
-// Singleton instance
+/**
+ * Singleton performance monitor instance
+ */
 export const performanceMonitor = new PerformanceMonitor();

@@ -117,6 +117,15 @@ interface CancelResult {
 }
 
 /**
+ * Authenticated request interface with user context
+ */
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+  };
+}
+
+/**
  * Create trading API routes for the unified validator DEX
  * Handles order placement, management, portfolio operations, and conversions
  * @param orderBook - Decentralized order book implementation
@@ -151,58 +160,77 @@ export function createTradingRoutes(
       body('reduceOnly').optional().isBoolean(),
       body('postOnly').optional().isBoolean()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(400).json({
-            error: 'Validation failed',
-            details: errors.array()
+    (req: AuthenticatedRequest, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const errors = validationResult(req);
+          if (!errors.isEmpty()) {
+            res.status(400).json({
+              error: 'Validation failed',
+              details: errors.array()
+            });
+            return;
+          }
+
+          const requestBody = req.body as Record<string, unknown>;
+          const userId = req.headers['x-user-id'] as string | undefined;
+          
+          if (userId === null || userId === undefined || userId === '') {
+            res.status(401).json({
+              error: 'User authentication required'
+            });
+            return;
+          }
+
+          const order = {
+            type: requestBody.type as "MARKET" | "LIMIT" | "STOP_LOSS" | "STOP_LIMIT" | "TRAILING_STOP" | "OCO" | "ICEBERG" | "TWAP" | "VWAP",
+            side: requestBody.side as "BUY" | "SELL",
+            pair: requestBody.pair as string,
+            quantity: requestBody.quantity as string,
+            price: requestBody.price as string | undefined,
+            stopPrice: requestBody.stopPrice as string | undefined,
+            timeInForce: (requestBody.timeInForce as "GTC" | "DAY" | "IOC" | "FOK") ?? 'GTC',
+            leverage: (requestBody.leverage as number) ?? 1,
+            reduceOnly: (requestBody.reduceOnly as boolean) ?? false,
+            postOnly: (requestBody.postOnly as boolean) ?? false,
+            userId,
+            timestamp: Date.now()
+          };
+
+          const result = await orderBook.submitOrder(order);
+          
+          // Track fees for distribution
+          if (result.filled === true) {
+            await feeDistribution.recordTradingFees(result.fees);
+          }
+
+          logger.info('Order placed', { orderId: result.orderId, type: order.type, pair: order.pair });
+
+          res.status(201).json({
+            success: true,
+            orderId: result.orderId,
+            status: result.status,
+            filled: result.filled,
+            remaining: result.remaining,
+            averagePrice: result.averagePrice,
+            fees: result.fees,
+            timestamp: result.timestamp
+          });
+
+        } catch (error) {
+          logger.error('Error placing order:', error);
+          res.status(500).json({
+            error: 'Failed to place order',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        const order = {
-          type: req.body.type,
-          side: req.body.side,
-          pair: req.body.pair,
-          quantity: req.body.quantity,
-          price: req.body.price,
-          stopPrice: req.body.stopPrice,
-          timeInForce: req.body.timeInForce || 'GTC',
-          leverage: req.body.leverage || 1,
-          reduceOnly: req.body.reduceOnly || false,
-          postOnly: req.body.postOnly || false,
-          userId: req.headers['x-user-id'] as string, // From auth middleware
-          timestamp: Date.now()
-        };
-
-        const result = await orderBook.submitOrder(order);
-        
-        // Track fees for distribution
-        if (result.filled) {
-          await feeDistribution.recordTradingFees(result.fees);
-        }
-
-        logger.info('Order placed', { orderId: result.orderId, type: order.type, pair: order.pair });
-
-        return res.status(201).json({
-          success: true,
-          orderId: result.orderId,
-          status: result.status,
-          filled: result.filled,
-          remaining: result.remaining,
-          averagePrice: result.averagePrice,
-          fees: result.fees,
-          timestamp: result.timestamp
-        });
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error placing order:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to place order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -212,27 +240,43 @@ export function createTradingRoutes(
    */
   router.get('/orders/:orderId',
     [param('orderId').isString().notEmpty()],
-    async (req: Request, res: Response) => {
-      try {
-        const { orderId } = req.params;
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const { orderId } = req.params;
 
-        const order = await orderBook.getOrder(orderId || '');
-        
-        if (!order) {
-          return res.status(404).json({
-            error: 'Order not found'
+          if (orderId === null || orderId === undefined || orderId === '') {
+            res.status(400).json({
+              error: 'Order ID is required'
+            });
+            return;
+          }
+
+          const order = await orderBook.getOrder(orderId);
+          
+          if (order === null || order === undefined) {
+            res.status(404).json({
+              error: 'Order not found'
+            });
+            return;
+          }
+
+          res.json(order);
+
+        } catch (error) {
+          logger.error('Error getting order:', error);
+          res.status(500).json({
+            error: 'Failed to get order',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        return res.json(order);
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error getting order:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -242,35 +286,58 @@ export function createTradingRoutes(
    */
   router.delete('/orders/:orderId',
     [param('orderId').isString().notEmpty()],
-    async (req: Request, res: Response) => {
-      try {
-        const { orderId } = req.params;
-        const userId = req.headers['x-user-id'] as string;
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const { orderId } = req.params;
+          const userId = req.headers['x-user-id'] as string | undefined;
 
-        const result = await orderBook.cancelOrder(orderId || '', userId || '');
+          if (orderId === null || orderId === undefined || orderId === '') {
+            res.status(400).json({
+              error: 'Order ID is required'
+            });
+            return;
+          }
 
-        if (!result.success) {
-          return res.status(400).json({
+          if (userId === null || userId === undefined || userId === '') {
+            res.status(401).json({
+              error: 'User authentication required'
+            });
+            return;
+          }
+
+          const result = await orderBook.cancelOrder(orderId, userId);
+
+          if (result.success !== true) {
+            res.status(400).json({
+              error: 'Failed to cancel order',
+              message: result.message
+            });
+            return;
+          }
+
+          logger.info('Order cancelled', { orderId, userId });
+
+          res.json({
+            success: true,
+            orderId,
+            cancelledAt: result.timestamp
+          });
+
+        } catch (error) {
+          logger.error('Error cancelling order:', error);
+          res.status(500).json({
             error: 'Failed to cancel order',
-            message: result.message
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        logger.info('Order cancelled', { orderId, userId });
-
-        return res.json({
-          success: true,
-          orderId,
-          cancelledAt: result.timestamp
-        });
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error cancelling order:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to cancel order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -285,32 +352,51 @@ export function createTradingRoutes(
       query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
       query('offset').optional().isInt({ min: 0 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const userId = req.headers['x-user-id'] as string;
-        const filters = {
-          pair: req.query['pair'] as string,
-          status: req.query['status'] as string,
-          limit: parseInt(req.query['limit'] as string) || 50,
-          offset: parseInt(req.query['offset'] as string) || 0
-        };
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const userId = req.headers['x-user-id'] as string | undefined;
+          
+          if (userId === null || userId === undefined || userId === '') {
+            res.status(401).json({
+              error: 'User authentication required'
+            });
+            return;
+          }
 
-        const orders = await orderBook.getUserOrders(userId || '', filters);
+          const limitParam = req.query['limit'] as string | undefined;
+          const offsetParam = req.query['offset'] as string | undefined;
 
-        return res.json({
-          orders,
-          total: orders.length,
-          limit: filters.limit,
-          offset: filters.offset
-        });
+          const filters = {
+            pair: req.query['pair'] as string | undefined,
+            status: req.query['status'] as string | undefined,
+            limit: (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 50,
+            offset: (offsetParam !== undefined && parseInt(offsetParam) >= 0) ? parseInt(offsetParam) : 0
+          };
 
-      } catch (error) {
+          const orders = await orderBook.getUserOrders(userId, filters);
+
+          res.json({
+            orders,
+            total: orders.length,
+            limit: filters.limit,
+            offset: filters.offset
+          });
+
+        } catch (error) {
+          logger.error('Error getting user orders:', error);
+          res.status(500).json({
+            error: 'Failed to get orders',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting user orders:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get orders',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -318,30 +404,45 @@ export function createTradingRoutes(
    * Get trading portfolio
    * GET /api/v1/trading/portfolio
    */
-  router.get('/portfolio', async (req: Request, res: Response) => {
-    try {
-      const userId = req.headers['x-user-id'] as string;
+  router.get('/portfolio', (req: Request, res: Response): void => {
+    void Promise.resolve().then(async () => {
+      try {
+        const userId = req.headers['x-user-id'] as string | undefined;
 
-      const portfolio = await orderBook.getPortfolio(userId || '');
+        if (userId === null || userId === undefined || userId === '') {
+          res.status(401).json({
+            error: 'User authentication required'
+          });
+          return;
+        }
 
-      return res.json({
-        balances: portfolio.balances,
-        positions: portfolio.positions,
-        openOrders: portfolio.openOrders,
-        totalValue: portfolio.totalValue,
-        unrealizedPnL: portfolio.unrealizedPnL,
-        availableMargin: portfolio.availableMargin,
-        usedMargin: portfolio.usedMargin,
-        marginRatio: portfolio.marginRatio
-      });
+        const portfolio = await orderBook.getPortfolio(userId);
 
-    } catch (error) {
+        res.json({
+          balances: portfolio.balances,
+          positions: portfolio.positions,
+          openOrders: portfolio.openOrders,
+          totalValue: portfolio.totalValue,
+          unrealizedPnL: portfolio.unrealizedPnL,
+          availableMargin: portfolio.availableMargin,
+          usedMargin: portfolio.usedMargin,
+          marginRatio: portfolio.marginRatio
+        });
+
+      } catch (error) {
+        logger.error('Error getting portfolio:', error);
+        res.status(500).json({
+          error: 'Failed to get portfolio',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting portfolio:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get portfolio',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
@@ -356,33 +457,52 @@ export function createTradingRoutes(
       query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
       query('offset').optional().isInt({ min: 0 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const userId = req.headers['x-user-id'] as string;
-        const filters = {
-          pair: req.query['pair'] as string,
-          startTime: new Date(req.query['startTime'] as string),
-          endTime: new Date(req.query['endTime'] as string),
-          limit: parseInt(req.query['limit'] as string) || 50,
-          offset: parseInt(req.query['offset'] as string) || 0
-        };
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const userId = req.headers['x-user-id'] as string | undefined;
+          
+          if (userId === null || userId === undefined || userId === '') {
+            res.status(401).json({
+              error: 'User authentication required'
+            });
+            return;
+          }
 
-        const trades = await orderBook.getUserTrades(userId || '', filters);
+          const limitParam = req.query['limit'] as string | undefined;
+          const offsetParam = req.query['offset'] as string | undefined;
 
-        return res.json({
-          trades,
-          total: trades.length,
-          limit: filters.limit,
-          offset: filters.offset
-        });
+          const filters = {
+            pair: req.query['pair'] as string | undefined,
+            startTime: new Date(req.query['startTime'] as string),
+            endTime: new Date(req.query['endTime'] as string),
+            limit: (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 50,
+            offset: (offsetParam !== undefined && parseInt(offsetParam) >= 0) ? parseInt(offsetParam) : 0
+          };
 
-      } catch (error) {
+          const trades = await orderBook.getUserTrades(userId, filters);
+
+          res.json({
+            trades,
+            total: trades.length,
+            limit: filters.limit,
+            offset: filters.offset
+          });
+
+        } catch (error) {
+          logger.error('Error getting trade history:', error);
+          res.status(500).json({
+            error: 'Failed to get trade history',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting trade history:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get trade history',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -390,33 +510,48 @@ export function createTradingRoutes(
    * Get fee information
    * GET /api/v1/trading/fees
    */
-  router.get('/fees', async (req: Request, res: Response) => {
-    try {
-      const userId = req.headers['x-user-id'] as string;
+  router.get('/fees', (req: Request, res: Response): void => {
+    void Promise.resolve().then(async () => {
+      try {
+        const userId = req.headers['x-user-id'] as string | undefined;
 
-      const feeInfo = await feeDistribution.getUserFeeInfo(userId || '');
+        if (userId === null || userId === undefined || userId === '') {
+          res.status(401).json({
+            error: 'User authentication required'
+          });
+          return;
+        }
 
-      return res.json({
-        currentFees: {
-          spotMaker: feeInfo.spotMaker,
-          spotTaker: feeInfo.spotTaker,
-          perpetualMaker: feeInfo.perpetualMaker,
-          perpetualTaker: feeInfo.perpetualTaker,
-          autoConversion: feeInfo.autoConversion
-        },
-        feesGenerated: feeInfo.feesGenerated,
-        feeDiscounts: feeInfo.feeDiscounts,
-        validatorShare: '70%',
-        nextDistribution: feeInfo.nextDistribution
-      });
+        const feeInfo = await feeDistribution.getUserFeeInfo(userId);
 
-    } catch (error) {
+        res.json({
+          currentFees: {
+            spotMaker: feeInfo.spotMaker,
+            spotTaker: feeInfo.spotTaker,
+            perpetualMaker: feeInfo.perpetualMaker,
+            perpetualTaker: feeInfo.perpetualTaker,
+            autoConversion: feeInfo.autoConversion
+          },
+          feesGenerated: feeInfo.feesGenerated,
+          feeDiscounts: feeInfo.feeDiscounts,
+          validatorShare: '70%',
+          nextDistribution: feeInfo.nextDistribution
+        });
+
+      } catch (error) {
+        logger.error('Error getting fee information:', error);
+        res.status(500).json({
+          error: 'Failed to get fee information',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting fee information:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get fee information',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
@@ -435,61 +570,81 @@ export function createTradingRoutes(
       body('reduceOnly').optional().isBoolean(),
       body('timeInForce').optional().isIn(['GTC', 'DAY', 'IOC', 'FOK'])
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(400).json({
-            error: 'Validation failed',
-            details: errors.array()
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const errors = validationResult(req);
+          if (!errors.isEmpty()) {
+            res.status(400).json({
+              error: 'Validation failed',
+              details: errors.array()
+            });
+            return;
+          }
+
+          const userId = req.headers['x-user-id'] as string | undefined;
+          
+          if (userId === null || userId === undefined || userId === '') {
+            res.status(401).json({
+              error: 'User authentication required'
+            });
+            return;
+          }
+
+          const requestBody = req.body as Record<string, unknown>;
+
+          const perpetualOrder = {
+            type: requestBody.type as "MARKET" | "LIMIT" | "STOP_LOSS" | "STOP_LIMIT" | "TRAILING_STOP" | "OCO" | "ICEBERG" | "TWAP" | "VWAP",
+            side: requestBody.side as "BUY" | "SELL",
+            contract: requestBody.contract as string,
+            size: requestBody.size as string,
+            leverage: requestBody.leverage as number,
+            price: requestBody.price as string | undefined,
+            stopPrice: requestBody.stopPrice as string | undefined,
+            reduceOnly: (requestBody.reduceOnly as boolean) ?? false,
+            timeInForce: (requestBody.timeInForce as "GTC" | "DAY" | "IOC" | "FOK") ?? 'GTC',
+            userId,
+            timestamp: Date.now()
+          };
+
+          const result = await orderBook.placePerpetualOrder(perpetualOrder);
+
+          // Track fees for distribution
+          if (result.filled === true) {
+            await feeDistribution.recordTradingFees(result.fees);
+          }
+
+          logger.info('Perpetual order placed', { 
+            orderId: result.orderId, 
+            contract: perpetualOrder.contract,
+            side: perpetualOrder.side,
+            leverage: perpetualOrder.leverage
+          });
+
+          res.status(201).json({
+            success: true,
+            orderId: result.orderId,
+            position: result.position,
+            marginUsed: result.marginUsed,
+            liquidationPrice: result.liquidationPrice,
+            unrealizedPnL: result.unrealizedPnL,
+            fees: result.fees
+          });
+
+        } catch (error) {
+          logger.error('Error placing perpetual order:', error);
+          res.status(500).json({
+            error: 'Failed to place perpetual order',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        const perpetualOrder = {
-          type: req.body.type,
-          side: req.body.side,
-          contract: req.body.contract,
-          size: req.body.size,
-          leverage: req.body.leverage,
-          price: req.body.price,
-          stopPrice: req.body.stopPrice,
-          reduceOnly: req.body.reduceOnly || false,
-          timeInForce: req.body.timeInForce || 'GTC',
-          userId: req.headers['x-user-id'] as string,
-          timestamp: Date.now()
-        };
-
-        const result = await orderBook.placePerpetualOrder(perpetualOrder);
-
-        // Track fees for distribution
-        if (result.filled) {
-          await feeDistribution.recordTradingFees(result.fees);
-        }
-
-        logger.info('Perpetual order placed', { 
-          orderId: result.orderId, 
-          contract: perpetualOrder.contract,
-          side: perpetualOrder.side,
-          leverage: perpetualOrder.leverage
-        });
-
-        return res.status(201).json({
-          success: true,
-          orderId: result.orderId,
-          position: result.position,
-          marginUsed: result.marginUsed,
-          liquidationPrice: result.liquidationPrice,
-          unrealizedPnL: result.unrealizedPnL,
-          fees: result.fees
-        });
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error placing perpetual order:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to place perpetual order',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -497,35 +652,50 @@ export function createTradingRoutes(
    * Get perpetual positions
    * GET /api/v1/trading/perpetuals/positions
    */
-  router.get('/perpetuals/positions', async (req: Request, res: Response) => {
-    try {
-      const userId = req.headers['x-user-id'] as string;
+  router.get('/perpetuals/positions', (req: Request, res: Response): void => {
+    void Promise.resolve().then(async () => {
+      try {
+        const userId = req.headers['x-user-id'] as string | undefined;
 
-      const positions = await orderBook.getPerpetualPositions(userId || '');
+        if (userId === null || userId === undefined || userId === '') {
+          res.status(401).json({
+            error: 'User authentication required'
+          });
+          return;
+        }
 
-      return res.json({
-        positions: positions.map((position: Position) => ({
-          contract: position.contract,
-          side: position.side,
-          size: position.size,
-          entryPrice: position.entryPrice,
-          markPrice: position.markPrice,
-          leverage: position.leverage,
-          margin: position.margin,
-          unrealizedPnL: position.unrealizedPnL,
-          liquidationPrice: position.liquidationPrice,
-          fundingPayment: position.fundingPayment,
-          lastFundingTime: position.lastFundingTime
-        }))
-      });
+        const positions = await orderBook.getPerpetualPositions(userId);
 
-    } catch (error) {
+        res.json({
+          positions: positions.map((position: Position) => ({
+            contract: position.contract,
+            side: position.side,
+            size: position.size,
+            entryPrice: position.entryPrice,
+            markPrice: position.markPrice,
+            leverage: position.leverage,
+            margin: position.margin,
+            unrealizedPnL: position.unrealizedPnL,
+            liquidationPrice: position.liquidationPrice,
+            fundingPayment: position.fundingPayment,
+            lastFundingTime: position.lastFundingTime
+          }))
+        });
+
+      } catch (error) {
+        logger.error('Error getting perpetual positions:', error);
+        res.status(500).json({
+          error: 'Failed to get perpetual positions',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting perpetual positions:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get perpetual positions',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   /**
@@ -538,57 +708,75 @@ export function createTradingRoutes(
       body('amount').isDecimal().notEmpty(),
       body('slippageTolerance').optional().isDecimal().isLength({ min: 0, max: 0.1 })
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const { fromToken, amount, slippageTolerance = 0.005 } = req.body;
-        const userId = req.headers['x-user-id'] as string;
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(async () => {
+        try {
+          const requestBody = req.body as Record<string, unknown>;
+          const fromToken = requestBody.fromToken as string;
+          const amount = requestBody.amount as string;
+          const slippageTolerance = (requestBody.slippageTolerance as number) ?? 0.005;
+          const userId = req.headers['x-user-id'] as string | undefined;
 
-        const conversion = await orderBook.autoConvertToXOM(
-          userId || '',
-          fromToken,
-          amount,
-          slippageTolerance
-        );
+          if (userId === null || userId === undefined || userId === '') {
+            res.status(401).json({
+              error: 'User authentication required'
+            });
+            return;
+          }
 
-        // Track conversion fees
-        await feeDistribution.recordConversionFees({
-          amount: conversion.fees,
-          asset: 'XOM',
-          type: 'taker',
-          orderId: conversion.id,
-          userId: userId || ''
-        });
+          const conversion = await orderBook.autoConvertToXOM(
+            userId,
+            fromToken,
+            amount,
+            slippageTolerance
+          );
 
-        logger.info('Token conversion completed', {
-          userId,
-          fromToken,
-          amount,
-          xomReceived: conversion.toAmount,
-          conversionRate: conversion.conversionRate
-        });
+          // Track conversion fees
+          await feeDistribution.recordConversionFees({
+            amount: conversion.fees,
+            asset: 'XOM',
+            type: 'taker',
+            orderId: conversion.id,
+            userId
+          });
 
-        return res.json({
-          success: true,
-          conversionId: conversion.id,
-          fromToken,
-          fromAmount: amount,
-          toToken: 'XOM',
-          toAmount: conversion.toAmount,
-          conversionRate: conversion.conversionRate,
-          fees: conversion.fees,
-          slippage: conversion.actualSlippage,
-          timestamp: conversion.timestamp
-        });
+          logger.info('Token conversion completed', {
+            userId,
+            fromToken,
+            amount,
+            xomReceived: conversion.toAmount,
+            conversionRate: conversion.conversionRate
+          });
 
-      } catch (error) {
+          res.json({
+            success: true,
+            conversionId: conversion.id,
+            fromToken,
+            fromAmount: amount,
+            toToken: 'XOM',
+            toAmount: conversion.toAmount,
+            conversionRate: conversion.conversionRate,
+            fees: conversion.fees,
+            slippage: conversion.actualSlippage,
+            timestamp: conversion.timestamp
+          });
+
+        } catch (error) {
+          logger.error('Error converting tokens:', error);
+          res.status(500).json({
+            error: 'Failed to convert tokens',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error converting tokens:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to convert tokens',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
   return router;
-} 
+}

@@ -40,7 +40,7 @@ class Logger {
    * Reads log level from LOG_LEVEL environment variable
    */
   constructor() {
-    const level = process.env['LOG_LEVEL']?.toUpperCase() || 'INFO';
+    const level = process.env['LOG_LEVEL']?.toUpperCase() ?? 'INFO';
     this.logLevel = LogLevel[level as keyof typeof LogLevel] ?? LogLevel.INFO;
   }
 
@@ -50,7 +50,7 @@ class Logger {
       level,
       message,
       timestamp,
-      ...(data ? { data } : {})
+      ...(data !== undefined ? { data } : {})
     };
     
     return JSON.stringify(logEntry);

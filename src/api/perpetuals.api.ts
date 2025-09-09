@@ -10,82 +10,156 @@
 import { Router, Request, Response } from 'express';
 import { PerpetualIntegration } from '../core/perpetuals/PerpetualIntegration';
 import { DecentralizedOrderBook } from '../core/dex/DecentralizedOrderBook';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { validateRequired, validateNumeric, validateEnum, validateLeverage } from '../middleware/validation';
 import { logger } from '../utils/logger';
 import { body, param, query } from 'express-validator';
+import { authMiddleware } from '../middleware/auth';
 
 /**
- * Perpetuals API request/response types
+ * Request interface for opening a new perpetual position
  */
 export interface OpenPositionRequest {
+  /** Trading market symbol */
   market: string;
+  /** Position side - LONG or SHORT */
   side: 'LONG' | 'SHORT';
+  /** Position size in base currency */
   size: string;
+  /** Leverage multiplier */
   leverage: number;
+  /** Optional limit price */
   price?: string;
+  /** Whether this order is reduce-only */
   reduceOnly?: boolean;
+  /** Whether this order is post-only */
   postOnly?: boolean;
 }
 
+/**
+ * Request interface for closing a perpetual position
+ */
 export interface ClosePositionRequest {
+  /** Optional size to close (defaults to full position) */
   size?: string;
+  /** Optional limit price for closing */
   price?: string;
 }
 
+/**
+ * Request interface for updating position leverage
+ */
 export interface UpdateLeverageRequest {
+  /** New leverage multiplier */
   leverage: number;
 }
 
+/**
+ * Response interface for position data
+ */
 export interface PositionResponse {
+  /** Unique position identifier */
   id: string;
+  /** Trader's address */
   trader: string;
+  /** Trading market symbol */
   market: string;
+  /** Position side (LONG/SHORT) */
   side: string;
+  /** Position size in base currency */
   size: string;
+  /** Average entry price */
   entryPrice: string;
+  /** Current mark price */
   markPrice: string;
+  /** Position leverage */
   leverage: number;
+  /** Margin amount */
   margin: string;
+  /** Liquidation price */
   liquidationPrice: string;
+  /** Unrealized profit/loss */
   unrealizedPnl: string;
+  /** Realized profit/loss */
   realizedPnl: string;
+  /** Funding payment amount */
   fundingPayment: string;
+  /** Position status */
   status: string;
+  /** Timestamp when position was opened */
   openedAt: number;
 }
 
+/**
+ * Response interface for market data
+ */
 export interface MarketResponse {
+  /** Market symbol */
   symbol: string;
+  /** Base currency */
   baseCurrency: string;
+  /** Quote currency */
   quoteCurrency: string;
+  /** Minimum order size */
   minSize: string;
+  /** Price tick size */
   tickSize: string;
+  /** Maximum allowed leverage */
   maxLeverage: number;
+  /** Initial margin requirement */
   initialMargin: number;
+  /** Maintenance margin requirement */
   maintenanceMargin: number;
+  /** Funding rate interval in seconds */
   fundingInterval: number;
+  /** Maximum funding rate */
   maxFundingRate: string;
+  /** Maker fee rate */
   makerFee: string;
+  /** Taker fee rate */
   takerFee: string;
+  /** Market status */
   status: string;
+  /** Current mark price */
   markPrice: string;
+  /** Index price */
   indexPrice: string;
+  /** Total open interest */
   openInterest: string;
 }
 
+/**
+ * Response interface for funding rate data
+ */
 export interface FundingRateResponse {
+  /** Market symbol */
   market: string;
+  /** Current funding rate */
   rate: number;
+  /** Next funding timestamp */
   nextFundingAt: number;
+  /** Current mark price */
   markPrice: number;
+  /** Index price */
   indexPrice: number;
+  /** Open interest amount */
   openInterest: number;
+  /** Response timestamp */
   timestamp: number;
 }
 
 /**
+ * Authenticated request interface with user context
+ */
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+  };
+}
+
+/**
  * Create perpetuals API router
+ * @param integration - The perpetual integration instance
+ * @param orderBook - The decentralized order book instance
+ * @returns The configured Express router for perpetual trading endpoints
  */
 export function createPerpetualsRouter(
   integration: PerpetualIntegration,
@@ -94,18 +168,13 @@ export function createPerpetualsRouter(
   const router = Router();
 
   /**
-   * @api {get} /api/perpetuals/markets Get all perpetual markets
-   * @apiName GetPerpetualMarkets
-   * @apiGroup Perpetuals
-   * @apiDescription Get list of all available perpetual futures markets
-   * 
-   * @apiSuccess {Object[]} markets List of perpetual markets
-   * @apiSuccess {String} markets.symbol Market symbol (e.g., "BTC-USD")
-   * @apiSuccess {Number} markets.maxLeverage Maximum allowed leverage
-   * @apiSuccess {String} markets.markPrice Current mark price
-   * @apiSuccess {String} markets.openInterest Total open interest
+   * Get all perpetual markets
+   * Returns a list of all available perpetual futures markets with their configuration and current state.
+   * @param _req - Express request object (unused)
+   * @param res - Express response object
+   * @returns void - Sends JSON response with market data
    */
-  router.get('/markets', async (_req: Request, res: Response) => {
+  router.get('/markets', (_req: Request, res: Response): void => {
     try {
       const markets = integration.getMarkets();
       const response: MarketResponse[] = markets.map(market => ({
@@ -127,10 +196,10 @@ export function createPerpetualsRouter(
         openInterest: integration.getOpenInterest(market.symbol)
       }));
 
-      return res.json({ success: true, data: response });
+      res.json({ success: true, data: response });
     } catch (error) {
       logger.error('Failed to get markets:', error);
-      return res.status(500).json({ 
+      res.status(500).json({ 
         success: false, 
         error: 'Failed to retrieve markets' 
       });
@@ -138,21 +207,32 @@ export function createPerpetualsRouter(
   });
 
   /**
-   * @api {get} /api/perpetuals/markets/:symbol Get specific market
-   * @apiName GetPerpetualMarket
-   * @apiGroup Perpetuals
-   * @apiParam {String} symbol Market symbol (e.g., "BTC-USD")
+   * Get specific perpetual market by symbol
+   * Retrieves configuration and current state for a specific perpetual futures market.
+   * @param req - Express request object with symbol parameter
+   * @param res - Express response object
+   * @returns void - Sends JSON response with market data or error
    */
   router.get('/markets/:symbol', 
     param('symbol').isString().notEmpty(),
-    async (req: Request, res: Response) => {
+    (req: Request, res: Response): void => {
       try {
-        const market = integration.getMarket(req.params.symbol!);
-        if (!market) {
-          return res.status(404).json({ 
+        const symbol = req.params.symbol;
+        if (symbol === null || symbol === undefined || symbol === '') {
+          res.status(400).json({ 
+            success: false, 
+            error: 'Market symbol is required' 
+          });
+          return;
+        }
+        
+        const market = integration.getMarket(symbol);
+        if (market === null || market === undefined) {
+          res.status(404).json({ 
             success: false, 
             error: 'Market not found' 
           });
+          return;
         }
 
         const response: MarketResponse = {
@@ -174,10 +254,10 @@ export function createPerpetualsRouter(
           openInterest: integration.getOpenInterest(market.symbol)
         };
 
-        return res.json({ success: true, data: response });
+        res.json({ success: true, data: response });
       } catch (error) {
         logger.error('Failed to get market:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           error: 'Failed to retrieve market' 
         });
@@ -186,16 +266,11 @@ export function createPerpetualsRouter(
   );
 
   /**
-   * @api {post} /api/perpetuals/positions Open a new position
-   * @apiName OpenPosition
-   * @apiGroup Perpetuals
-   * @apiDescription Open a new perpetual futures position
-   * 
-   * @apiParam {String} market Market symbol (e.g., "BTC-USD")
-   * @apiParam {String} side Position side ("LONG" or "SHORT")
-   * @apiParam {String} size Position size in base currency
-   * @apiParam {Number} leverage Leverage (1-100)
-   * @apiParam {String} [price] Limit price (optional, uses market price if not provided)
+   * Open a new perpetual position
+   * Creates a new perpetual futures position for the authenticated user.
+   * @param req - Express request object with position data in body
+   * @param res - Express response object
+   * @returns void - Sends JSON response with position result or error
    */
   router.post('/positions',
     authMiddleware,
@@ -204,156 +279,219 @@ export function createPerpetualsRouter(
     body('size').isNumeric(),
     body('leverage').isInt({ min: 1, max: 100 }),
     body('price').optional().isNumeric(),
-    async (req: Request, res: Response) => {
-      try {
-        const userId = (req as any).user?.id;
-        if (!userId) {
-          return res.status(401).json({ 
+    (req: AuthenticatedRequest, res: Response): void => {
+      void Promise.resolve().then(() => {
+        try {
+          const user = req.user;
+          const userId = user?.id;
+          if (userId === null || userId === undefined) {
+            res.status(401).json({ 
+              success: false, 
+              error: 'User not authenticated' 
+            });
+            return;
+          }
+
+          // Safely extract and type request body fields
+          const requestBody = req.body as Record<string, unknown>;
+          const market = requestBody.market as string;
+          const side = requestBody.side as string;
+          const size = requestBody.size as string;
+          const leverage = requestBody.leverage as number;
+          const price = requestBody.price as string | undefined;
+          
+          const orderData = {
+            userId,
+            contract: market,
+            type: (price !== null && price !== undefined ? 'LIMIT' : 'MARKET') as 'LIMIT' | 'MARKET',
+            side: side as 'LONG' | 'SHORT',
+            size,
+            leverage,
+            entryPrice: price,
+            status: 'PENDING' as const
+          };
+
+          // Process through order book (which will call integration)
+          const result = orderBook.placePerpetualOrder(orderData);
+
+          res.json({ 
+            success: result.success, 
+            data: result.order,
+            message: result.message 
+          });
+        } catch (error) {
+          logger.error('Failed to open position:', error);
+          res.status(500).json({ 
             success: false, 
-            error: 'User not authenticated' 
+            error: (error as Error).message 
           });
         }
-
-        const orderData = {
-          userId,
-          contract: req.body.market,
-          type: (req.body.price ? 'LIMIT' : 'MARKET') as 'LIMIT' | 'MARKET',
-          side: req.body.side,
-          size: req.body.size,
-          leverage: req.body.leverage,
-          entryPrice: req.body.price,
-          status: 'PENDING' as const
-        };
-
-        // Process through order book (which will call integration)
-        const result = await orderBook.placePerpetualOrder(orderData);
-
-        return res.json({ 
-          success: result.success, 
-          data: result.order,
-          message: result.message 
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Failed to open position:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
-          error: (error as Error).message 
+          error: 'Failed to open position' 
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {post} /api/perpetuals/positions/:id/close Close a position
-   * @apiName ClosePosition
-   * @apiGroup Perpetuals
-   * @apiParam {String} id Position ID
-   * @apiParam {String} [size] Size to close (optional, closes full position if not provided)
-   * @apiParam {String} [price] Limit price (optional)
+   * Close a perpetual position
+   * Closes an existing perpetual position partially or fully.
+   * @param req - Express request object with position ID and close parameters
+   * @param res - Express response object
+   * @returns void - Sends JSON response with close result or error
    */
   router.post('/positions/:id/close',
     authMiddleware,
     param('id').isString().notEmpty(),
     body('size').optional().isNumeric(),
     body('price').optional().isNumeric(),
-    async (req: Request, res: Response) => {
-      try {
-        const result = await integration.closePosition(
-          req.params.id!,
-          req.body.size,
-          req.body.price
-        );
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(() => {
+        try {
+          const positionId = req.params.id;
+          if (positionId === null || positionId === undefined || positionId === '') {
+            res.status(400).json({ 
+              success: false, 
+              error: 'Position ID is required' 
+            });
+            return;
+          }
 
-        if (!result.success) {
-          return res.status(400).json({ 
+          const requestBody = req.body as Record<string, unknown>;
+          const size = requestBody.size as string | undefined;
+          const price = requestBody.price as string | undefined;
+          
+          const result = integration.closePosition(
+            positionId,
+            size,
+            price
+          );
+
+          if (result.success !== true) {
+            res.status(400).json({ 
+              success: false, 
+              error: result.message 
+            });
+            return;
+          }
+
+          res.json({ 
+            success: true, 
+            data: result.position,
+            message: result.message 
+          });
+        } catch (error) {
+          logger.error('Failed to close position:', error);
+          res.status(500).json({ 
             success: false, 
-            error: result.message 
+            error: (error as Error).message 
           });
         }
-
-        return res.json({ 
-          success: true, 
-          data: result.position,
-          message: result.message 
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Failed to close position:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
-          error: (error as Error).message 
+          error: 'Failed to close position' 
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {put} /api/perpetuals/positions/:id/leverage Update position leverage
-   * @apiName UpdateLeverage
-   * @apiGroup Perpetuals
-   * @apiParam {String} id Position ID
-   * @apiParam {Number} leverage New leverage value
+   * Update position leverage
+   * Updates the leverage for an existing perpetual position.
+   * @param req - Express request object with position ID and new leverage
+   * @param res - Express response object
+   * @returns void - Sends JSON response with update result or error
    */
   router.put('/positions/:id/leverage',
     authMiddleware,
     param('id').isString().notEmpty(),
     body('leverage').isInt({ min: 1, max: 100 }),
-    async (req: Request, res: Response) => {
-      try {
-        const result = await integration.updateLeverage(
-          req.params.id!,
-          req.body.leverage
-        );
+    (req: Request, res: Response): void => {
+      void Promise.resolve().then(() => {
+        try {
+          const positionId = req.params.id;
+          if (positionId === null || positionId === undefined || positionId === '') {
+            res.status(400).json({ 
+              success: false, 
+              error: 'Position ID is required' 
+            });
+            return;
+          }
 
-        if (!result.success) {
-          return res.status(400).json({ 
+          const requestBody = req.body as Record<string, unknown>;
+          const leverage = requestBody.leverage as number;
+          
+          const result = integration.updateLeverage(
+            positionId,
+            leverage
+          );
+
+          if (result.success !== true) {
+            res.status(400).json({ 
+              success: false, 
+              error: result.message 
+            });
+            return;
+          }
+
+          res.json({ 
+            success: true, 
+            data: result.position,
+            message: result.message 
+          });
+        } catch (error) {
+          logger.error('Failed to update leverage:', error);
+          res.status(500).json({ 
             success: false, 
-            error: result.message 
+            error: (error as Error).message 
           });
         }
-
-        return res.json({ 
-          success: true, 
-          data: result.position,
-          message: result.message 
-        });
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Failed to update leverage:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
-          error: (error as Error).message 
+          error: 'Failed to update leverage' 
         });
-      }
+      });
     }
   );
 
   /**
-   * @api {get} /api/perpetuals/positions Get user positions
-   * @apiName GetPositions
-   * @apiGroup Perpetuals
-   * @apiDescription Get all open positions for authenticated user
+   * Get user positions
+   * Retrieves all open positions for the authenticated user.
+   * @param req - Express request object with user authentication
+   * @param res - Express response object
+   * @returns void - Sends JSON response with positions array or error
    */
   router.get('/positions',
     authMiddleware,
-    async (req: Request, res: Response) => {
+    (req: AuthenticatedRequest, res: Response): void => {
       try {
-        const userId = (req as any).user?.id;
-        if (!userId) {
-          return res.status(401).json({ 
+        const user = req.user;
+        const userId = user?.id;
+        if (userId === null || userId === undefined) {
+          res.status(401).json({ 
             success: false, 
             error: 'User not authenticated' 
           });
+          return;
         }
 
         const positions = integration.getUserPositions(userId);
         const response = positions.map(pos => integration.convertToPosition(pos));
 
-        return res.json({ 
+        res.json({ 
           success: true, 
           data: response 
         });
       } catch (error) {
         logger.error('Failed to get positions:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           error: 'Failed to retrieve positions' 
         });
@@ -362,34 +500,36 @@ export function createPerpetualsRouter(
   );
 
   /**
-   * @api {get} /api/perpetuals/funding-rates Get funding rates
-   * @apiName GetFundingRates
-   * @apiGroup Perpetuals
-   * @apiQuery {String} [market] Filter by market symbol
+   * Get funding rates
+   * Retrieves current funding rates for perpetual markets.
+   * @param req - Express request object with optional market query parameter
+   * @param res - Express response object
+   * @returns void - Sends JSON response with funding rates array or error
    */
   router.get('/funding-rates',
     query('market').optional().isString(),
-    async (req: Request, res: Response) => {
+    (req: Request, res: Response): void => {
       try {
-        const markets = req.query.market 
-          ? [req.query.market as string]
+        const marketQuery = req.query.market;
+        const markets = marketQuery !== null && marketQuery !== undefined
+          ? [marketQuery as string]
           : integration.getMarkets().map(m => m.symbol);
 
         const rates: FundingRateResponse[] = [];
         for (const market of markets) {
           const rate = integration.getFundingRate(market);
-          if (rate) {
+          if (rate !== null && rate !== undefined) {
             rates.push(rate);
           }
         }
 
-        return res.json({ 
+        res.json({ 
           success: true, 
           data: rates 
         });
       } catch (error) {
         logger.error('Failed to get funding rates:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           error: 'Failed to retrieve funding rates' 
         });
@@ -398,14 +538,16 @@ export function createPerpetualsRouter(
   );
 
   /**
-   * @api {get} /api/perpetuals/insurance-fund Get insurance fund balance
-   * @apiName GetInsuranceFund
-   * @apiGroup Perpetuals
+   * Get insurance fund balance
+   * Retrieves the current balance of the insurance fund.
+   * @param _req - Express request object (unused)
+   * @param res - Express response object
+   * @returns void - Sends JSON response with insurance fund data or error
    */
-  router.get('/insurance-fund', async (_req: Request, res: Response) => {
+  router.get('/insurance-fund', (_req: Request, res: Response): void => {
     try {
       const balance = integration.getInsuranceFund();
-      return res.json({ 
+      res.json({ 
         success: true, 
         data: { 
           balance,
@@ -415,7 +557,7 @@ export function createPerpetualsRouter(
       });
     } catch (error) {
       logger.error('Failed to get insurance fund:', error);
-      return res.status(500).json({ 
+      res.status(500).json({ 
         success: false, 
         error: 'Failed to retrieve insurance fund' 
       });
@@ -423,27 +565,29 @@ export function createPerpetualsRouter(
   });
 
   /**
-   * @api {get} /api/perpetuals/open-interest Get open interest
-   * @apiName GetOpenInterest
-   * @apiGroup Perpetuals
-   * @apiQuery {String} market Market symbol
+   * Get open interest
+   * Retrieves the current open interest for a specific market.
+   * @param req - Express request object with market query parameter
+   * @param res - Express response object
+   * @returns void - Sends JSON response with open interest data or error
    */
   router.get('/open-interest',
     query('market').isString().notEmpty(),
-    async (req: Request, res: Response) => {
+    (req: Request, res: Response): void => {
       try {
-        const openInterest = integration.getOpenInterest(req.query.market as string);
-        return res.json({ 
+        const market = req.query.market as string;
+        const openInterest = integration.getOpenInterest(market);
+        res.json({ 
           success: true, 
           data: { 
-            market: req.query.market,
+            market,
             openInterest,
             timestamp: Date.now()
           } 
         });
       } catch (error) {
         logger.error('Failed to get open interest:', error);
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           error: 'Failed to retrieve open interest' 
         });

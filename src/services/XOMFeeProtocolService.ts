@@ -208,6 +208,12 @@ export class XOMFeeProtocolService {
     diamond: { minVolume: 1000000, feeDiscount: 0.20 } // 20% fee discount
   };
   
+  /**
+   * Creates a new XOMFeeProtocolService instance
+   * @param provider - Ethereum provider for blockchain interactions
+   * @param signer - Optional signer for transaction signing
+   * @param validatorEndpoint - Optional validator endpoint URL
+   */
   constructor(
     provider: ethers.Provider,
     signer?: ethers.Signer,
@@ -215,20 +221,28 @@ export class XOMFeeProtocolService {
   ) {
     this.provider = provider;
     this.signer = signer;
-    this.validatorEndpoint = validatorEndpoint || 'http://localhost:3001/api/dex-rewards';
+    this.validatorEndpoint = validatorEndpoint ?? 'http://localhost:3001/api/dex-rewards';
   }
   
   /**
    * Initialize the service
    */
-  async initialize(): Promise<void> {
+  initialize(): void {
     // Start periodic reward updates
     this.startRewardUpdates();
-    console.log('DEX XOM Fee Protocol Service initialized');
   }
   
   /**
    * Track a trading action for rewards
+   * @param trader - The trader address
+   * @param type - The type of trading reward
+   * @param tradeData - Trade data object
+   * @param tradeData.volume - Trade volume in USD
+   * @param tradeData.pair - Trading pair identifier
+   * @param tradeData.txHash - Transaction hash of the trade
+   * @param tradeData.profit - Optional profit amount
+   * @param tradeData.referrer - Optional referrer address
+   * @returns Promise that resolves to trading reward or null if not eligible
    */
   async trackTradingAction(
     trader: string,
@@ -243,21 +257,22 @@ export class XOMFeeProtocolService {
   ): Promise<TradingReward | null> {
     try {
       // Check minimum volume requirement
-      const config = this.tradingRewardConfigs.get(type)!;
-      if (config.minVolume && tradeData.volume < config.minVolume) {
-        console.log(`Trade volume ${tradeData.volume} below minimum ${config.minVolume}`);
+      const config = this.tradingRewardConfigs.get(type);
+      if (config === undefined) {
+        return null;
+      }
+      if (typeof config.minVolume === 'number' && tradeData.volume < config.minVolume) {
         return null;
       }
       
       // Check if eligible for reward
       const isEligible = await this.checkTradingEligibility(trader, type);
       if (!isEligible) {
-        console.log(`Trader ${trader} not eligible for ${type} reward`);
         return null;
       }
       
       // Calculate reward amount (may include bonuses)
-      const rewardAmount = await this.calculateTradingReward(
+      const rewardAmount = this.calculateTradingReward(
         type, 
         tradeData.volume,
         tradeData.profit
@@ -295,31 +310,37 @@ export class XOMFeeProtocolService {
       // Clear cache to force refresh
       this.rewardsCache.delete(trader);
       
-      console.log(`Trading reward earned: ${rewardAmount} XOM for ${type}`);
       return reward;
       
     } catch (error) {
-      console.error('Error tracking trading action:', error);
+      // Silently handle error and return null
       return null;
     }
   }
   
   /**
    * Calculate trading reward amount with bonuses
+   * @param type - The reward type
+   * @param volume - Trade volume
+   * @param profit - Optional profit amount
+   * @returns Reward amount as string
    */
-  private async calculateTradingReward(
+  private calculateTradingReward(
     type: DEXRewardType,
     volume: number,
     profit?: number
-  ): Promise<string> {
-    const config = this.tradingRewardConfigs.get(type)!;
+  ): string {
+    const config = this.tradingRewardConfigs.get(type);
+    if (config === undefined) {
+      return '0';
+    }
     let baseReward = parseFloat(config.amount);
     
     // Volume-based multiplier (up to 2x for high volume)
     const volumeMultiplier = Math.min(2, 1 + (volume / 10000));
     
     // Profit-based bonus for arbitrage
-    if (type === DEXRewardType.ARBITRAGE && profit) {
+    if (type === DEXRewardType.ARBITRAGE && typeof profit === 'number' && profit > 0) {
       const profitBonus = Math.min(0.5, profit * 0.001); // 0.1% of profit, max 0.5 XOM
       baseReward += profitBonus;
     }
@@ -330,6 +351,9 @@ export class XOMFeeProtocolService {
   
   /**
    * Check trading eligibility
+   * @param trader - The trader address
+   * @param type - The reward type to check eligibility for
+   * @returns Promise that resolves to boolean indicating eligibility
    */
   private async checkTradingEligibility(
     trader: string,
@@ -344,22 +368,24 @@ export class XOMFeeProtocolService {
         return false;
       }
       
-      const data = await response.json();
+      const data = await response.json() as { eligible: boolean };
       return data.eligible;
       
     } catch (error) {
-      console.error('Error checking trading eligibility:', error);
+      // Silently handle error
       return false;
     }
   }
   
   /**
    * Get trading rewards summary
+   * @param trader - The trader address
+   * @returns Promise that resolves to trading rewards summary
    */
   async getTradingRewardsSummary(trader: string): Promise<TradingRewardsSummary> {
     // Check cache first
     const cached = this.rewardsCache.get(trader);
-    if (cached && Date.now() - cached.nextClaimTime < 60000) {
+    if (cached !== null && cached !== undefined && Date.now() - cached.nextClaimTime < 60000) {
       return cached;
     }
     
@@ -369,7 +395,7 @@ export class XOMFeeProtocolService {
         throw new Error('Failed to fetch trading rewards summary');
       }
       
-      const data = await response.json();
+      const data = await response.json() as unknown;
       const summary = this.processTradingRewardsData(data);
       
       // Update cache
@@ -377,23 +403,37 @@ export class XOMFeeProtocolService {
       
       return summary;
     } catch (error) {
-      console.error('Error fetching trading rewards:', error);
+      // Silently handle error
       return this.getEmptyTradingRewardsSummary();
     }
   }
   
   /**
    * Process trading rewards data
+   * @param data - Raw data from API response
+   * @returns Processed trading rewards summary
    */
-  private processTradingRewardsData(data: any): TradingRewardsSummary {
-    const byType = new Map<DEXRewardType, any>();
+  private processTradingRewardsData(data: unknown): TradingRewardsSummary {
+    const dataObj = data as Record<string, unknown>;
+    const byType = new Map<DEXRewardType, { count: number; total: string; volume: string; }>();
     
-    for (const [type, stats] of Object.entries(data.byType || {})) {
-      byType.set(type as DEXRewardType, stats);
+    const byTypeData = dataObj.byType as Record<string, unknown> | undefined;
+    if (byTypeData !== null && byTypeData !== undefined) {
+      for (const [type, stats] of Object.entries(byTypeData)) {
+        const statsObj = stats as Record<string, unknown>;
+        // Type the stats object with proper validation
+        const typedStats = {
+          count: typeof statsObj.count === 'number' ? statsObj.count : 0,
+          total: typeof statsObj.total === 'string' ? statsObj.total : '0',
+          volume: typeof statsObj.volume === 'string' ? statsObj.volume : '0'
+        };
+        byType.set(type as DEXRewardType, typedStats);
+      }
     }
     
     // Determine trading tier based on volume
-    const totalVolume = parseFloat(data.totalVolume || '0');
+    const totalVolumeStr = typeof dataObj.totalVolume === 'string' ? dataObj.totalVolume : '0';
+    const totalVolume = parseFloat(totalVolumeStr);
     let tradingTier: 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' = 'bronze';
     
     if (totalVolume >= this.TRADING_TIERS.diamond.minVolume) tradingTier = 'diamond';
@@ -402,19 +442,20 @@ export class XOMFeeProtocolService {
     else if (totalVolume >= this.TRADING_TIERS.silver.minVolume) tradingTier = 'silver';
     
     return {
-      pendingAmount: data.pendingAmount || '0',
-      claimedAmount: data.claimedAmount || '0',
-      totalVolume: data.totalVolume || '0',
-      tradeCount: data.tradeCount || 0,
-      byType,
-      recent: data.recent || [],
-      nextClaimTime: data.nextClaimTime || Date.now(),
+      pendingAmount: typeof dataObj.pendingAmount === 'string' ? dataObj.pendingAmount : '0',
+      claimedAmount: typeof dataObj.claimedAmount === 'string' ? dataObj.claimedAmount : '0',
+      totalVolume: typeof dataObj.totalVolume === 'string' ? dataObj.totalVolume : '0',
+      tradeCount: typeof dataObj.tradeCount === 'number' ? dataObj.tradeCount : 0,
+      byType: byType as Map<DEXRewardType, { count: number; total: string; volume: string; }>,
+      recent: Array.isArray(dataObj.recent) ? dataObj.recent as TradingReward[] : [],
+      nextClaimTime: typeof dataObj.nextClaimTime === 'number' ? dataObj.nextClaimTime : Date.now(),
       tradingTier
     };
   }
   
   /**
    * Get empty trading rewards summary
+   * @returns Empty trading rewards summary object
    */
   private getEmptyTradingRewardsSummary(): TradingRewardsSummary {
     return {
@@ -431,11 +472,13 @@ export class XOMFeeProtocolService {
   
   /**
    * Get liquidity mining rewards
+   * @param provider - The provider address
+   * @returns Promise that resolves to array of liquidity mining rewards
    */
   async getLiquidityMiningRewards(provider: string): Promise<LiquidityMiningRewards[]> {
     // Check cache
     const cached = this.liquidityRewardsCache.get(provider);
-    if (cached) return cached;
+    if (cached !== null && cached !== undefined) return cached;
     
     try {
       const response = await fetch(`${this.validatorEndpoint}/liquidity/${provider}`);
@@ -443,7 +486,7 @@ export class XOMFeeProtocolService {
         throw new Error('Failed to fetch liquidity rewards');
       }
       
-      const rewards = await response.json();
+      const rewards = await response.json() as LiquidityMiningRewards[];
       this.liquidityRewardsCache.set(provider, rewards);
       
       return rewards;
@@ -455,6 +498,8 @@ export class XOMFeeProtocolService {
   
   /**
    * Claim trading rewards
+   * @param trader - The trader address to claim rewards for
+   * @returns Promise that resolves to claim result with success status and optional transaction hash
    */
   async claimTradingRewards(trader: string): Promise<{
     success: boolean;
@@ -462,7 +507,7 @@ export class XOMFeeProtocolService {
     amount?: string;
     error?: string;
   }> {
-    if (!this.signer) {
+    if (this.signer === undefined) {
       return {
         success: false,
         error: 'No signer available'
@@ -505,7 +550,7 @@ export class XOMFeeProtocolService {
         throw new Error('Failed to claim rewards');
       }
       
-      const data = await response.json();
+      const data = await response.json() as { txHash: string };
       
       // Clear cache
       this.rewardsCache.delete(trader);
@@ -528,6 +573,9 @@ export class XOMFeeProtocolService {
   
   /**
    * Get trading history with rewards
+   * @param trader - The trader address to get history for
+   * @param limit - Maximum number of records to return
+   * @returns Promise that resolves to array of trading rewards
    */
   async getTradingHistory(
     trader: string,
@@ -542,7 +590,7 @@ export class XOMFeeProtocolService {
         throw new Error('Failed to fetch trading history');
       }
       
-      return await response.json();
+      return await response.json() as TradingReward[];
     } catch (error) {
       console.error('Error fetching trading history:', error);
       return [];
@@ -551,6 +599,8 @@ export class XOMFeeProtocolService {
   
   /**
    * Get trading leaderboard
+   * @param period - Time period for leaderboard data
+   * @returns Promise that resolves to array of leaderboard entries
    */
   async getTradingLeaderboard(
     period: 'daily' | 'weekly' | 'monthly' = 'weekly'
@@ -571,7 +621,14 @@ export class XOMFeeProtocolService {
         throw new Error('Failed to fetch leaderboard');
       }
       
-      return await response.json();
+      return await response.json() as Array<{
+        trader: string;
+        totalVolume: string;
+        totalEarned: string;
+        tradeCount: number;
+        tradingTier: string;
+        rank: number;
+      }>;
     } catch (error) {
       console.error('Error fetching trading leaderboard:', error);
       return [];
@@ -580,16 +637,20 @@ export class XOMFeeProtocolService {
   
   /**
    * Get fee discount for trader based on tier
+   * @param trader - The trader address to get fee discount for
+   * @returns Fee discount percentage (0-1)
    */
   getFeeDiscount(trader: string): number {
     const cached = this.rewardsCache.get(trader);
-    if (!cached) return 0;
+    if (cached === undefined) return 0;
     
     return this.TRADING_TIERS[cached.tradingTier].feeDiscount;
   }
   
   /**
    * Get reward configuration
+   * @param type - The reward type to get configuration for
+   * @returns Trading reward configuration or undefined if not found
    */
   getRewardConfig(type: DEXRewardType): TradingRewardConfig | undefined {
     return this.tradingRewardConfigs.get(type);
@@ -597,6 +658,7 @@ export class XOMFeeProtocolService {
   
   /**
    * Get all reward types
+   * @returns Array of all reward types with their configurations
    */
   getAllRewardTypes(): Array<{
     type: DEXRewardType;
@@ -610,6 +672,9 @@ export class XOMFeeProtocolService {
   
   /**
    * Calculate estimated daily earnings for a trader
+   * @param avgDailyVolume - Average daily trading volume in USD
+   * @param tradesPerDay - Average number of trades per day
+   * @returns Estimated daily earnings in XOM as string
    */
   calculateEstimatedEarnings(
     avgDailyVolume: number,
@@ -633,7 +698,8 @@ export class XOMFeeProtocolService {
    */
   private startRewardUpdates(): void {
     // Update rewards every minute
-    this.updateInterval = setInterval(async () => {
+    this.updateInterval = setInterval(() => {
+      void (async () => {
       for (const trader of this.rewardsCache.keys()) {
         try {
           await this.getTradingRewardsSummary(trader);
@@ -641,6 +707,7 @@ export class XOMFeeProtocolService {
           console.error(`Error updating rewards for ${trader}:`, error);
         }
       }
+      })();
     }, 60 * 1000);
   }
   
@@ -648,7 +715,7 @@ export class XOMFeeProtocolService {
    * Shutdown the service
    */
   shutdown(): void {
-    if (this.updateInterval) {
+    if (this.updateInterval !== null) {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
@@ -658,6 +725,8 @@ export class XOMFeeProtocolService {
   
   /**
    * Format reward amount for display
+   * @param amount - The reward amount to format
+   * @returns Formatted reward amount string with XOM suffix
    */
   formatReward(amount: string): string {
     return `${parseFloat(amount).toFixed(3)} XOM`;
@@ -665,6 +734,8 @@ export class XOMFeeProtocolService {
   
   /**
    * Format trading tier for display
+   * @param tier - The trading tier to format
+   * @returns Object with display name, color, and discount information
    */
   formatTradingTier(tier: string): {
     display: string;
@@ -683,7 +754,7 @@ export class XOMFeeProtocolService {
     
     return {
       display: tier.charAt(0).toUpperCase() + tier.slice(1),
-      color: tierColors[tier as keyof typeof tierColors] || '#000000',
+      color: tier.length > 0 && tierColors[tier as keyof typeof tierColors] !== undefined ? tierColors[tier as keyof typeof tierColors] : '#000000',
       discount: `${(discount * 100).toFixed(0)}% fee discount`
     };
   }

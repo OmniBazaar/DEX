@@ -12,31 +12,31 @@ import { getYugabyteConfig } from './yugabyte.config';
 
 export const DEFAULT_STORAGE_CONFIG: StorageConfig = {
   redis: {
-    host: process.env['REDIS_HOST'] || 'localhost',
-    port: parseInt(process.env['REDIS_PORT'] || '6379'),
-    ...(process.env['REDIS_PASSWORD'] ? { password: process.env['REDIS_PASSWORD'] } : {}),
-    db: parseInt(process.env['REDIS_DB'] || '0')
+    host: process.env['REDIS_HOST'] ?? 'localhost',
+    port: parseInt(process.env['REDIS_PORT'] ?? '6379'),
+    ...(process.env['REDIS_PASSWORD'] !== undefined ? { password: process.env['REDIS_PASSWORD'] } : {}),
+    db: parseInt(process.env['REDIS_DB'] ?? '0')
   },
   
   // Use YugabyteDB for warm tier (PostgreSQL-compatible)
   postgresql: process.env['USE_YUGABYTE'] === 'true' ? getYugabyteConfig() : {
-    host: process.env['POSTGRES_HOST'] || 'localhost',
-    port: parseInt(process.env['POSTGRES_PORT'] || '5432'),
-    database: process.env['POSTGRES_DB'] || 'omnibazaar_dex',
-    user: process.env['POSTGRES_USER'] || 'dex_user',
-    password: process.env['POSTGRES_PASSWORD'] || 'dex_password',
-    max: parseInt(process.env['POSTGRES_POOL_SIZE'] || '20')
+    host: process.env['POSTGRES_HOST'] ?? 'localhost',
+    port: parseInt(process.env['POSTGRES_PORT'] ?? '5432'),
+    database: process.env['POSTGRES_DB'] ?? 'omnibazaar_dex',
+    user: process.env['POSTGRES_USER'] ?? 'dex_user',
+    password: process.env['POSTGRES_PASSWORD'] ?? 'dex_password',
+    max: parseInt(process.env['POSTGRES_POOL_SIZE'] ?? '20')
   },
   
   ipfs: {
-    host: process.env['IPFS_HOST'] || 'localhost',
-    port: parseInt(process.env['IPFS_API_PORT'] || '5001'),
-    protocol: process.env['IPFS_PROTOCOL'] || 'http'
+    host: process.env['IPFS_HOST'] ?? 'localhost',
+    port: parseInt(process.env['IPFS_API_PORT'] ?? '5001'),
+    protocol: process.env['IPFS_PROTOCOL'] ?? 'http'
   },
   
   archival: {
-    threshold: parseInt(process.env['ARCHIVAL_THRESHOLD_DAYS'] || '7'), // Days before archiving
-    batchSize: parseInt(process.env['ARCHIVAL_BATCH_SIZE'] || '100')   // Records per batch
+    threshold: parseInt(process.env['ARCHIVAL_THRESHOLD_DAYS'] ?? '7'), // Days before archiving
+    batchSize: parseInt(process.env['ARCHIVAL_BATCH_SIZE'] ?? '100')   // Records per batch
   }
 };
 
@@ -46,7 +46,7 @@ export const PRODUCTION_STORAGE_CONFIG: StorageConfig = {
   redis: {
     ...DEFAULT_STORAGE_CONFIG.redis,
     // Redis Cluster endpoints for production
-    host: process.env['REDIS_CLUSTER_ENDPOINT'] || DEFAULT_STORAGE_CONFIG.redis.host
+    host: process.env['REDIS_CLUSTER_ENDPOINT'] ?? DEFAULT_STORAGE_CONFIG.redis.host
   },
   postgresql: {
     ...DEFAULT_STORAGE_CONFIG.postgresql,
@@ -81,9 +81,12 @@ export const DEVELOPMENT_STORAGE_CONFIG: StorageConfig = {
   }
 };
 
-// Get configuration based on environment
+/**
+ * Get configuration based on environment
+ * @returns Storage configuration for current environment
+ */
 export function getStorageConfig(): StorageConfig {
-  const env = process.env['NODE_ENV'] || 'development';
+  const env = process.env['NODE_ENV'] ?? 'development';
   
   switch (env) {
     case 'production':
@@ -103,24 +106,31 @@ export function getStorageConfig(): StorageConfig {
   }
 }
 
-// Validator-specific storage configuration
+/**
+ * Validator-specific storage configuration
+ */
 export interface ValidatorStorageConfig {
-  // Validator's own storage preferences
+  /** Validator's own storage preferences */
   preferredStorageTier: 'hot' | 'warm' | 'cold';
   
-  // Replication settings
+  /** Replication factor for data redundancy */
   replicationFactor: number;
-  syncInterval: number; // milliseconds
+  /** Sync interval in milliseconds */
+  syncInterval: number;
   
-  // Performance tuning
-  cacheSize: number; // MB
+  /** Cache size in MB */
+  cacheSize: number;
+  /** Maximum number of connections */
   maxConnections: number;
   
-  // Data retention
+  /** Data retention policy */
   retentionPolicy: {
-    hot: number;  // hours
-    warm: number; // days
-    cold: number; // days (or -1 for permanent)
+    /** Hot tier retention in hours */
+    hot: number;
+    /** Warm tier retention in days */
+    warm: number;
+    /** Cold tier retention in days (or -1 for permanent) */
+    cold: number;
   };
 }
 

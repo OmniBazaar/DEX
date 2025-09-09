@@ -26,7 +26,7 @@ import {
 } from '../../types/config';
 import { ServiceHealth } from '../../types/validator';
 import { logger } from '../../utils/logger';
-import { generateOrderId, generateTradeId } from '../../utils/id-generator';
+import { generateOrderId } from '../../utils/id-generator';
 import { 
   PRECISION,
   toWei,
@@ -269,7 +269,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     this.storage = storage;
     
     // Initialize privacy service if provider is available
-    this.initializePrivacyService();
+    void this.initializePrivacyService();
     
     // Initialize contract service for on-chain settlement
     this.initializeContractService();
@@ -277,8 +277,8 @@ export class DecentralizedOrderBook extends EventEmitter {
     logger.info('DecentralizedOrderBook created', {
       pairs: config.tradingPairs.length,
       feeStructure: config.feeStructure,
-      privacyEnabled: !!this.privacyService,
-      contractEnabled: !!this.contractService
+      privacyEnabled: this.privacyService !== null && this.privacyService !== undefined,
+      contractEnabled: this.contractService !== null && this.contractService !== undefined
     });
   }
 
@@ -299,18 +299,18 @@ export class DecentralizedOrderBook extends EventEmitter {
       await this.initializeHybridStorage();
       
       // Initialize trading pairs (including pXOM pairs)
-      await this.initializeTradingPairs();
+      this.initializeTradingPairs();
       
       // Initialize privacy trading pairs if service is available
-      if (this.privacyService) {
-        await this.initializePrivacyPairs();
+      if (this.privacyService !== null && this.privacyService !== undefined) {
+        void this.initializePrivacyPairs();
       }
       
       // Initialize perpetual contracts
-      await this.initializePerpetualContracts();
+      this.initializePerpetualContracts();
       
       // Load existing orders from storage
-      await this.loadOrdersFromStorage();
+      this.loadOrdersFromStorage();
       
       // Start order matching engine
       this.startOrderMatching();
@@ -320,10 +320,10 @@ export class DecentralizedOrderBook extends EventEmitter {
       
       this.isInitialized = true;
       
-      logger.info('✅ Decentralized Order Book initialized');
-      logger.info(`📊 Trading pairs: ${this.tradingPairs.size}`);
-      logger.info(`📈 Active orders: ${this.orders.size}`);
-      logger.info(`🔐 Privacy enabled: ${!!this.privacyService}`);
+      logger.info('Decentralized Order Book initialized');
+      logger.info(`Trading pairs: ${this.tradingPairs.size}`);
+      logger.info(`Active orders: ${this.orders.size}`);
+      logger.info(`Privacy enabled: ${this.privacyService !== null && this.privacyService !== undefined}`);
       
     } catch (error) {
       logger.error('❌ Failed to initialize order book:', error);
@@ -352,7 +352,7 @@ export class DecentralizedOrderBook extends EventEmitter {
   async placeOrder(orderData: Partial<UnifiedOrder>): Promise<OrderResult> {
     try {
       // Check if this is a privacy order (pXOM pair)
-      if (this.privacyService && this.isPrivacyPair(orderData.pair || '')) {
+      if (this.privacyService !== null && this.privacyService !== undefined && orderData.pair !== null && orderData.pair !== undefined && this.isPrivacyPair(orderData.pair)) {
         return await this.placePrivacyOrder(orderData);
       }
       
@@ -362,20 +362,20 @@ export class DecentralizedOrderBook extends EventEmitter {
       // Create order with ID
       const order: UnifiedOrder = {
         id: this.generateOrderId(),
-        userId: orderData.userId!,
-        type: orderData.type!,
-        side: orderData.side!,
-        pair: orderData.pair!,
-        quantity: orderData.quantity!,
-        ...(orderData.price && { price: orderData.price }),
-        ...(orderData.stopPrice && { stopPrice: orderData.stopPrice }),
-        timeInForce: orderData.timeInForce || 'GTC',
-        leverage: orderData.leverage || 1,
-        reduceOnly: orderData.reduceOnly || false,
-        postOnly: orderData.postOnly || false,
+        userId: orderData.userId ?? '',
+        type: orderData.type ?? 'LIMIT',
+        side: orderData.side ?? 'BUY',
+        pair: orderData.pair ?? '',
+        quantity: orderData.quantity ?? '0',
+        ...(orderData.price !== undefined && orderData.price !== null && orderData.price !== '' ? { price: orderData.price } : {}),
+        ...(orderData.stopPrice !== undefined && orderData.stopPrice !== null && orderData.stopPrice !== '' ? { stopPrice: orderData.stopPrice } : {}),
+        timeInForce: orderData.timeInForce ?? 'GTC',
+        leverage: orderData.leverage ?? 1,
+        reduceOnly: orderData.reduceOnly === true,
+        postOnly: orderData.postOnly === true,
         status: 'PENDING',
         filled: '0',
-        remaining: orderData.quantity!,
+        remaining: orderData.quantity ?? '0',
         fees: '0',
         timestamp: Date.now(),
         updatedAt: Date.now(),
@@ -384,7 +384,7 @@ export class DecentralizedOrderBook extends EventEmitter {
       };
 
       // Store in hybrid storage for high performance
-      if (this.hybridStorage) {
+      if (this.hybridStorage !== null && this.hybridStorage !== undefined) {
         await this.hybridStorage.placeOrder(order);
       } else {
         // Fallback to IPFS
@@ -400,9 +400,9 @@ export class DecentralizedOrderBook extends EventEmitter {
       // Attempt immediate matching for market orders
       let result;
       if (order.type === 'MARKET') {
-        result = await this.executeMarketOrder(order);
+        result = this.executeMarketOrder(order);
       } else {
-        result = await this.addLimitOrder(order);
+        result = this.addLimitOrder(order);
       }
 
       // Emit events
@@ -441,36 +441,36 @@ export class DecentralizedOrderBook extends EventEmitter {
    * });
    * ```
    */
-  async placePerpetualOrder(orderData: Partial<PerpetualOrder>): Promise<PerpetualOrderResult> {
+  placePerpetualOrder(orderData: Partial<PerpetualOrder>): PerpetualOrderResult {
     try {
       // Validate perpetual order
       this.validatePerpetualOrder(orderData);
       
       // Calculate margin requirements
       const marginRequired = this.calculateMarginRequired(
-        orderData.size!,
-        orderData.leverage!,
-        orderData.contract!
+        orderData.size ?? '0',
+        orderData.leverage ?? 1,
+        orderData.contract ?? ''
       );
 
       // Check margin availability
-      await this.checkMarginAvailability(orderData.userId!, marginRequired);
+      this.checkMarginAvailability(orderData.userId ?? '', marginRequired);
 
       // Create position or modify existing
-      await this.updatePosition(orderData);
+      this.updatePosition(orderData);
       
       const orderId = this.generateOrderId();
       const order: PerpetualOrder = {
         id: orderId,
-        userId: orderData.userId!,
-        type: orderData.type || 'LIMIT',
-        contract: orderData.contract!,
-        side: orderData.side!,
-        size: orderData.size!,
-        leverage: orderData.leverage!,
+        userId: orderData.userId ?? '',
+        type: orderData.type ?? 'LIMIT',
+        contract: orderData.contract ?? '',
+        side: orderData.side ?? 'LONG',
+        size: orderData.size ?? '0',
+        leverage: orderData.leverage ?? 1,
         margin: marginRequired,
-        reduceOnly: orderData.reduceOnly || false,
-        timeInForce: orderData.timeInForce || 'GTC',
+        reduceOnly: orderData.reduceOnly === true,
+        timeInForce: orderData.timeInForce ?? 'GTC',
         price: orderData.price,
         status: 'OPEN',
         timestamp: Date.now()
@@ -480,7 +480,7 @@ export class DecentralizedOrderBook extends EventEmitter {
         success: true,
         orderId,
         order,
-        fees: parseFloat(this.calculatePerpetualFees(orderData.size!, orderData.leverage!)),
+        fees: parseFloat(this.calculatePerpetualFees(orderData.size ?? '0', orderData.leverage ?? 1)),
         requiredMargin: parseFloat(marginRequired)
       };
 
@@ -508,7 +508,7 @@ export class DecentralizedOrderBook extends EventEmitter {
   async cancelOrder(orderId: string, userId: string): Promise<CancelResult> {
     const order = this.orders.get(orderId);
     
-    if (!order) {
+    if (order === null || order === undefined) {
       return { success: false, orderId, message: 'Order not found' };
     }
     
@@ -525,7 +525,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     order.updatedAt = Date.now();
 
     // Update storage
-    if (this.hybridStorage) {
+    if (this.hybridStorage !== null && this.hybridStorage !== undefined) {
       await this.hybridStorage.placeOrder(order); // Updates existing
     } else {
       await this.storage.updateOrder(order);
@@ -543,12 +543,12 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Get order details by ID with user authorization
    * @param orderId - Order ID to retrieve
    * @param userId - User ID for authorization
-   * @returns Promise resolving to order or null if not found/unauthorized
+   * @returns Order or null if not found/unauthorized
    */
-  async getOrder(orderId: string, userId: string): Promise<UnifiedOrder | null> {
+  getOrder(orderId: string, userId: string): UnifiedOrder | null {
     const order = this.orders.get(orderId);
     
-    if (!order || order.userId !== userId) {
+    if (order === null || order === undefined || order.userId !== userId) {
       return null;
     }
     
@@ -559,7 +559,7 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Get orders for a specific user with filtering and pagination
    * @param userId - User ID to get orders for
    * @param filters - Filters for pair, status, pagination
-   * @returns Promise resolving to filtered list of user orders
+   * @returns Filtered list of user orders
    * @example
    * ```typescript
    * const orders = await orderBook.getUserOrders('user123', {
@@ -569,29 +569,29 @@ export class DecentralizedOrderBook extends EventEmitter {
    * });
    * ```
    */
-  async getUserOrders(userId: string, filters: OrderFilters): Promise<UnifiedOrder[]> {
-    const userOrderIds = this.ordersByUser.get(userId) || new Set();
+  getUserOrders(userId: string, filters: OrderFilters): UnifiedOrder[] {
+    const userOrderIds = this.ordersByUser.get(userId) ?? new Set();
     let orders: UnifiedOrder[] = [];
 
     for (const orderId of userOrderIds) {
       const order = this.orders.get(orderId);
-      if (order) {
+      if (order !== null && order !== undefined) {
         orders.push(order);
       }
     }
 
     // Apply filters
-    if (filters.pair) {
+    if (filters.pair !== undefined && filters.pair !== null && filters.pair !== '') {
       orders = orders.filter(o => o.pair === filters.pair);
     }
     
-    if (filters.status) {
+    if (filters.status !== undefined && filters.status !== null && filters.status !== '') {
       orders = orders.filter(o => o.status === filters.status);
     }
 
     // Apply pagination
-    const start = filters.offset || 0;
-    const end = start + (filters.limit || 50);
+    const start = filters.offset ?? 0;
+    const end = start + (filters.limit ?? 50);
     
     return orders.slice(start, end);
   }
@@ -606,15 +606,15 @@ export class DecentralizedOrderBook extends EventEmitter {
    * console.log('Total value:', portfolio.totalValue);
    * ```
    */
-  async getPortfolio(userId: string): Promise<Portfolio> {
+  getPortfolio(userId: string): Portfolio {
     // Get balances (would integrate with wallet/blockchain)
-    const balances = await this.getUserBalances(userId);
+    const balances = this.getUserBalances(userId);
     
     // Get positions
-    const positions = await this.getUserPositions(userId);
+    const positions = this.getUserPositions(userId);
     
     // Get open orders
-    const openOrders = await this.getUserOrders(userId, { status: 'OPEN' });
+    const openOrders = this.getUserOrders(userId, { status: 'OPEN' });
 
     // Calculate portfolio values
     const totalValue = this.calculatePortfolioValue(balances, positions);
@@ -654,15 +654,15 @@ export class DecentralizedOrderBook extends EventEmitter {
    * );
    * ```
    */
-  async autoConvertToXOM(
+  autoConvertToXOM(
     _userId: string,
     fromToken: string,
     amount: string,
     _slippageTolerance: number
-  ): Promise<ConversionResult> {
+  ): ConversionResult {
     try {
       // Calculate conversion rate
-      const rate = await this.getConversionRate(fromToken, 'XOM');
+      const rate = this.getConversionRate(fromToken, 'XOM');
       // Use bigint for 18-digit precision
       const amountBN = toWei(amount);
       const rateBN = toWei(rate.toString());
@@ -712,7 +712,7 @@ export class DecentralizedOrderBook extends EventEmitter {
    */
   async getOrderBook(pair: string, limit: number = 100): Promise<OrderBook> {
     // Try hybrid storage first for performance
-    if (this.hybridStorage) {
+    if (this.hybridStorage !== null && this.hybridStorage !== undefined) {
       try {
         return await this.hybridStorage.getOrderBook(pair, limit);
       } catch (error) {
@@ -722,7 +722,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     
     const orderBook = this.orderBooks.get(pair);
     
-    if (!orderBook) {
+    if (orderBook === null || orderBook === undefined) {
       // Create empty order book
       return {
         pair,
@@ -761,7 +761,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     orderId: string
   ): Promise<boolean> {
     try {
-      if (!this.contractService) {
+      if (this.contractService === null || this.contractService === undefined) {
         logger.warn('Contract service not available, using off-chain settlement');
         return true; // Fallback to off-chain settlement
       }
@@ -819,7 +819,7 @@ export class DecentralizedOrderBook extends EventEmitter {
    */
   async batchSettleTradesOnChain(settlements: SettlementData[]): Promise<boolean> {
     try {
-      if (!this.contractService || settlements.length === 0) {
+      if (this.contractService === null || this.contractService === undefined || settlements.length === 0) {
         return true; // Fallback to off-chain
       }
 
@@ -875,7 +875,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     validatorAddress: string
   ): Promise<void> {
     try {
-      if (!this.contractService) {
+      if (this.contractService === null || this.contractService === undefined) {
         logger.warn('Contract service not available, fees held locally');
         return;
       }
@@ -901,9 +901,9 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   /**
    * Get health status of the order book service
-   * @returns Promise resolving to service health with operational metrics
+   * @returns Service health with operational metrics
    */
-  async getHealthStatus(): Promise<ServiceHealth> {
+  getHealthStatus(): ServiceHealth {
     const activeOrders = Array.from(this.orders.values()).filter(o => o.status === 'OPEN').length;
     const tradingPairs = this.tradingPairs.size;
     
@@ -922,8 +922,9 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   /**
    * Process block transactions for settlement
+   * @param block - Block transaction data containing settlement information
    */
-  async processBlockTransactions(block: BlockTransaction): Promise<void> {
+  processBlockTransactions(block: BlockTransaction): void {
     // Process settlement transactions from blockchain
     logger.debug('Processing block transactions', { blockHeight: block.height });
   }
@@ -939,7 +940,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     // Save all pending orders to storage
     for (const order of this.orders.values()) {
       if (order.status === 'OPEN') {
-        if (this.hybridStorage) {
+        if (this.hybridStorage !== null && this.hybridStorage !== undefined) {
           await this.hybridStorage.placeOrder(order);
         } else {
           await this.storage.updateOrder(order);
@@ -948,7 +949,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     }
     
     // Shutdown hybrid storage
-    if (this.hybridStorage) {
+    if (this.hybridStorage !== null && this.hybridStorage !== undefined) {
       await this.hybridStorage.shutdown();
     }
     
@@ -962,17 +963,24 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   // Helper methods
   private validateOrder(orderData: Partial<UnifiedOrder>): void {
-    if (!orderData.userId || !orderData.type || !orderData.side || !orderData.pair || !orderData.quantity) {
+    if (orderData.userId === null || orderData.userId === undefined || orderData.userId === '' ||
+        orderData.type === null || orderData.type === undefined ||
+        orderData.side === null || orderData.side === undefined ||
+        orderData.pair === null || orderData.pair === undefined || orderData.pair === '' ||
+        orderData.quantity === null || orderData.quantity === undefined || orderData.quantity === '') {
       throw new Error('Missing required order fields');
     }
     
-    if (orderData.type === 'LIMIT' && !orderData.price) {
+    if (orderData.type === 'LIMIT' && (orderData.price === null || orderData.price === undefined || orderData.price === '')) {
       throw new Error('Limit orders require a price');
     }
   }
 
   private validatePerpetualOrder(orderData: Partial<PerpetualOrder>): void {
-    if (!orderData.userId || !orderData.contract || !orderData.size || !orderData.leverage) {
+    if (orderData.userId === null || orderData.userId === undefined || orderData.userId === '' ||
+        orderData.contract === null || orderData.contract === undefined || orderData.contract === '' ||
+        orderData.size === null || orderData.size === undefined || orderData.size === '' ||
+        orderData.leverage === null || orderData.leverage === undefined || orderData.leverage === 0) {
       throw new Error('Missing required perpetual order fields');
     }
   }
@@ -982,17 +990,23 @@ export class DecentralizedOrderBook extends EventEmitter {
   }
 
   private addOrderToUserIndex(order: UnifiedOrder): void {
-    if (!this.ordersByUser.has(order.userId)) {
+    if (this.ordersByUser.has(order.userId) === false) {
       this.ordersByUser.set(order.userId, new Set());
     }
-    this.ordersByUser.get(order.userId)!.add(order.id);
+    const userOrders = this.ordersByUser.get(order.userId);
+    if (userOrders !== undefined) {
+      userOrders.add(order.id);
+    }
   }
 
   private addOrderToPairIndex(order: UnifiedOrder): void {
-    if (!this.ordersByPair.has(order.pair)) {
+    if (this.ordersByPair.has(order.pair) === false) {
       this.ordersByPair.set(order.pair, new Set());
     }
-    this.ordersByPair.get(order.pair)!.add(order.id);
+    const pairOrders = this.ordersByPair.get(order.pair);
+    if (pairOrders !== undefined) {
+      pairOrders.add(order.id);
+    }
   }
 
   private removeOrderFromIndices(order: UnifiedOrder): void {
@@ -1000,7 +1014,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     this.ordersByPair.get(order.pair)?.delete(order.id);
   }
 
-  private async executeMarketOrder(order: UnifiedOrder): Promise<OrderResult> {
+  private executeMarketOrder(order: UnifiedOrder): OrderResult {
     // Market order execution logic
     order.status = 'FILLED';
     order.filled = order.quantity;
@@ -1015,7 +1029,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     };
   }
 
-  private async addLimitOrder(order: UnifiedOrder): Promise<OrderResult> {
+  private addLimitOrder(order: UnifiedOrder): OrderResult {
     // Add to order book
     order.status = 'OPEN';
     
@@ -1042,10 +1056,10 @@ export class DecentralizedOrderBook extends EventEmitter {
     }
   }
 
-  private async initializeTradingPairs(): Promise<void> {
+  private initializeTradingPairs(): void {
     // Add pXOM pairs to config if privacy service is available
     const allPairs = [...this.config.tradingPairs];
-    if (this.privacyService) {
+    if (this.privacyService !== null && this.privacyService !== undefined) {
       // Add standard pXOM pairs
       const pxomPairs = [
         'pXOM/USDC',
@@ -1063,8 +1077,8 @@ export class DecentralizedOrderBook extends EventEmitter {
       const [base, quote] = pairSymbol.split('/');
       const pair: TradingPair = {
         symbol: pairSymbol,
-        baseAsset: base || 'XOM',
-        quoteAsset: quote || 'USDC',
+        baseAsset: (base !== null && base !== undefined && base !== '') ? base : 'XOM',
+        quoteAsset: (quote !== null && quote !== undefined && quote !== '') ? quote : 'USDC',
         type: 'spot',
         status: 'TRADING',
         minOrderSize: '0.001',
@@ -1080,14 +1094,14 @@ export class DecentralizedOrderBook extends EventEmitter {
     }
   }
 
-  private async initializePerpetualContracts(): Promise<void> {
+  private initializePerpetualContracts(): void {
     // Initialize perpetual contracts
     logger.info('Initializing perpetual contracts...');
   }
 
-  private async loadOrdersFromStorage(): Promise<void> {
+  private loadOrdersFromStorage(): void {
     // Load existing orders from storage
-    if (this.hybridStorage) {
+    if (this.hybridStorage !== null && this.hybridStorage !== undefined) {
       logger.info('Loading orders from hybrid storage...');
       // Would implement loading from PostgreSQL warm storage
     } else {
@@ -1101,7 +1115,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     logger.info('Starting order matching engine...');
     
     // Privacy service handles its own order matching
-    if (this.privacyService) {
+    if (this.privacyService !== null && this.privacyService !== undefined) {
       logger.info('Privacy order matching engine active');
     }
   }
@@ -1119,28 +1133,28 @@ export class DecentralizedOrderBook extends EventEmitter {
     return fromWei(marginBN);
   }
 
-  private async checkMarginAvailability(userId: string, required: string): Promise<void> {
+  private checkMarginAvailability(userId: string, required: string): void {
     // Check if user has sufficient margin
     // Placeholder implementation
     logger.debug('Checking margin availability', { userId, required });
   }
 
-  private async updatePosition(orderData: Partial<PerpetualOrder>): Promise<Position> {
+  private updatePosition(orderData: Partial<PerpetualOrder>): Position {
     // Create or update position
     return {
       id: `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      userId: orderData.userId || 'unknown',
-      pair: orderData.contract || 'XOM/USDC',
+      userId: (orderData.userId !== null && orderData.userId !== undefined && orderData.userId !== '') ? orderData.userId : 'unknown',
+      pair: (orderData.contract !== null && orderData.contract !== undefined && orderData.contract !== '') ? orderData.contract : 'XOM/USDC',
       type: 'PERPETUAL',
-      side: orderData.side || 'LONG',
+      side: orderData.side ?? 'LONG',
       status: 'ACTIVE',
       openedAt: Date.now(),
-      contract: orderData.contract!,
-      size: orderData.size!,
+      contract: orderData.contract ?? '',
+      size: orderData.size ?? '0',
       entryPrice: '1.50',
       markPrice: '1.50',
-      leverage: orderData.leverage!,
-      margin: orderData.margin!,
+      leverage: orderData.leverage ?? 1,
+      margin: orderData.margin ?? '0',
       unrealizedPnL: '0',
       liquidationPrice: '1.20',
       fundingPayment: '0',
@@ -1158,11 +1172,11 @@ export class DecentralizedOrderBook extends EventEmitter {
     // Calculate unrealized P&L
     if (Array.isArray(input)) {
       return input.reduce((sum, p) => {
-        const pnlBN = toWei(p.unrealizedPnL || '0');
+        const pnlBN = toWei(p.unrealizedPnL ?? '0');
         return sum + pnlBN;
       }, 0n).toString();
     }
-    return input.unrealizedPnL || '0';
+    return input.unrealizedPnL ?? '0';
   }
 
   private calculatePerpetualFees(size: string, _leverage: number): string {
@@ -1171,7 +1185,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     return fromWei(feeBN);
   }
 
-  private async getUserBalances(userId: string): Promise<Balance[]> {
+  private getUserBalances(userId: string): Balance[] {
     // Get user balances from blockchain/wallet
     logger.debug('Getting user balances', { userId });
     return [
@@ -1180,7 +1194,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     ];
   }
 
-  private async getUserPositions(userId: string): Promise<Position[]> {
+  private getUserPositions(userId: string): Position[] {
     // Get user perpetual positions
     logger.debug('Getting user positions', { userId });
     return [];
@@ -1188,7 +1202,7 @@ export class DecentralizedOrderBook extends EventEmitter {
 
   private calculatePortfolioValue(balances: Balance[], _positions: Position[]): string {
     const balanceValue = balances.reduce((sum, b) => {
-      const valueBN = b.usdValue ? toWei(b.usdValue) : 0n;
+      const valueBN = (b.usdValue !== null && b.usdValue !== undefined && b.usdValue !== '') ? toWei(b.usdValue) : 0n;
       return sum + valueBN;
     }, 0n);
     return fromWei(balanceValue);
@@ -1209,18 +1223,27 @@ export class DecentralizedOrderBook extends EventEmitter {
     return fromWei(availableMarginBN);
   }
 
-  private async getConversionRate(fromToken: string, toToken: string): Promise<number> {
+  private getConversionRate(fromToken: string, toToken: string): number {
     // Get conversion rate from price oracles
     logger.debug('Getting conversion rate', { fromToken, toToken });
     return 1.5; // XOM price in terms of fromToken
   }
 
   // Additional methods for getting trading pairs, tickers, etc.
-  async getTradingPairs(): Promise<TradingPair[]> {
+  /**
+   * Get all supported trading pairs
+   * @returns Promise resolving to array of trading pairs
+   */
+  getTradingPairs(): TradingPair[] {
     return Array.from(this.tradingPairs.values());
   }
 
-  async getTicker(pair: string): Promise<TickerData> {
+  /**
+   * Get ticker data for a specific trading pair
+   * @param pair - Trading pair symbol
+   * @returns Promise resolving to ticker data
+   */
+  getTicker(pair: string): TickerData {
     // Return ticker data for pair
     return {
       symbol: pair,
@@ -1235,24 +1258,48 @@ export class DecentralizedOrderBook extends EventEmitter {
     };
   }
 
-  async getAllTickers(): Promise<TickerData[]> {
+  /**
+   * Get ticker data for all trading pairs
+   * @returns Promise resolving to array of ticker data
+   */
+  getAllTickers(): TickerData[] {
     const tickers = [];
     for (const pair of this.tradingPairs.keys()) {
-      tickers.push(await this.getTicker(pair));
+      tickers.push(this.getTicker(pair));
     }
     return tickers;
   }
 
-  async getRecentTrades(pair: string, limit: number): Promise<Trade[]> {
-    return this.recentTrades.get(pair)?.slice(0, limit) || [];
+  /**
+   * Get recent trades for a trading pair
+   * @param pair - Trading pair symbol
+   * @param limit - Maximum number of trades to return
+   * @returns Promise resolving to array of recent trades
+   */
+  getRecentTrades(pair: string, limit: number): Trade[] {
+    const trades = this.recentTrades.get(pair);
+    return (trades !== null && trades !== undefined) ? trades.slice(0, limit) : [];
   }
 
-  async getCandles(pair: string, interval: string, options: CandleOptions): Promise<Candle[]> {
+  /**
+   * Get candlestick data for a trading pair
+   * @param pair - Trading pair symbol
+   * @param interval - Candle interval (e.g., '1m', '5m', '1h')
+   * @param options - Optional parameters for time range and limit
+   * @returns Promise resolving to array of candle data
+   */
+  getCandles(pair: string, interval: string, options: CandleOptions): Candle[] {
     // Return candlestick data
     logger.debug('Getting candles', { pair, interval, options });
     return [];
   }
 
+  /**
+   * Get market depth (order book aggregated by price levels)
+   * @param pair - Trading pair symbol
+   * @param limit - Maximum number of price levels to return
+   * @returns Promise resolving to market depth data
+   */
   async getMarketDepth(pair: string, limit: number): Promise<MarketDepth> {
     const orderBook = await this.getOrderBook(pair, limit);
     return {
@@ -1263,16 +1310,30 @@ export class DecentralizedOrderBook extends EventEmitter {
     };
   }
 
-  async getPerpetualContracts(): Promise<PerpetualContract[]> {
+  /**
+   * Get all available perpetual contracts
+   * @returns Promise resolving to array of perpetual contracts
+   */
+  getPerpetualContracts(): PerpetualContract[] {
     return Array.from(this.perpetualContracts.values());
   }
 
-  async getFundingRateHistory(symbol: string, options: FundingRateOptions): Promise<FundingRateEntry[]> {
+  /**
+   * Get funding rate history for a perpetual contract
+   * @param symbol - Contract symbol
+   * @param options - Optional parameters for time range and limit
+   * @returns Promise resolving to array of funding rate entries
+   */
+  getFundingRateHistory(symbol: string, options: FundingRateOptions): FundingRateEntry[] {
     logger.debug('Getting funding rate history', { symbol, options });
     return [];
   }
 
-  async getMarketStatistics(): Promise<MarketStatistics> {
+  /**
+   * Get comprehensive market statistics
+   * @returns Promise resolving to market statistics
+   */
+  getMarketStatistics(): MarketStatistics {
     return {
       totalVolume24h: 1000000,
       totalTrades24h: 5000,
@@ -1286,20 +1347,34 @@ export class DecentralizedOrderBook extends EventEmitter {
     };
   }
 
-  async getUserTrades(userId: string, filters: TradeFilters): Promise<Trade[]> {
+  /**
+   * Get trade history for a specific user
+   * @param userId - User ID to get trades for
+   * @param filters - Filters for pair, type, time range, and pagination
+   * @returns Promise resolving to array of user trades
+   */
+  getUserTrades(userId: string, filters: TradeFilters): Trade[] {
     logger.debug('Getting user trades', { userId, filters });
     return [];
   }
 
-  async getPerpetualPositions(userId: string): Promise<Position[]> {
+  /**
+   * Get perpetual positions for a specific user
+   * @param userId - User ID to get positions for
+   * @returns Array of user positions
+   */
+  getPerpetualPositions(userId: string): Position[] {
     return this.getUserPositions(userId);
   }
 
   /**
    * Calculate margin ratio with proper precision
+   * @param usedMargin - Used margin amount
+   * @param totalValue - Total portfolio value
+   * @returns Margin ratio as decimal (0-1)
    */
   private calculateMarginRatio(usedMargin: string, totalValue: string): number {
-    if (totalValue === '0' || !totalValue) return 0;
+    if (totalValue === '0' || totalValue === null || totalValue === undefined || totalValue === '') return 0;
     
     const usedMarginBN = toWei(usedMargin);
     const totalValueBN = toWei(totalValue);
@@ -1313,17 +1388,17 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Initialize privacy DEX service for pXOM trading
    * Creates service with COTI SDK integration if available
    */
-  private async initializePrivacyService(): Promise<void> {
+  private initializePrivacyService(): void {
     try {
       // Check if we have a provider (would come from config in production)
       const provider = new ethers.JsonRpcProvider(
-        process.env.COTI_RPC_URL || 'https://devnet.coti.io'
+        (process.env.COTI_RPC_URL !== null && process.env.COTI_RPC_URL !== undefined && process.env.COTI_RPC_URL !== '') ? process.env.COTI_RPC_URL : 'https://devnet.coti.io'
       );
       
       this.privacyService = new PrivacyDEXService(
         {
           privacyEnabled: true,
-          mpcNodeUrl: process.env.COTI_MPC_URL || 'https://mpc.coti.io',
+          mpcNodeUrl: (process.env.COTI_MPC_URL !== null && process.env.COTI_MPC_URL !== undefined && process.env.COTI_MPC_URL !== '') ? process.env.COTI_MPC_URL : 'https://mpc.coti.io',
           conversionFee: 0.005 // 0.5% for XOM to pXOM
         },
         provider
@@ -1342,9 +1417,11 @@ export class DecentralizedOrderBook extends EventEmitter {
   private initializeContractService(): void {
     try {
       // Get contract configuration from environment or defaults
-      const contractAddress = process.env.OMNICORE_CONTRACT_ADDRESS || 
+      const contractAddress = (process.env.OMNICORE_CONTRACT_ADDRESS !== null && process.env.OMNICORE_CONTRACT_ADDRESS !== undefined && process.env.OMNICORE_CONTRACT_ADDRESS !== '') ? 
+        process.env.OMNICORE_CONTRACT_ADDRESS :
         '0x1234567890123456789012345678901234567890'; // Placeholder for testnet
-      const providerUrl = process.env.RPC_URL || 
+      const providerUrl = (process.env.RPC_URL !== null && process.env.RPC_URL !== undefined && process.env.RPC_URL !== '') ?
+        process.env.RPC_URL :
         'https://api.avax-test.network/ext/bc/C/rpc'; // Avalanche testnet
       
       // Validator private key for settlement (would come from secure storage)
@@ -1381,8 +1458,8 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Initialize privacy trading pairs for pXOM
    * Adds pXOM pairs to the trading pairs map
    */
-  private async initializePrivacyPairs(): Promise<void> {
-    if (!this.privacyService) return;
+  private initializePrivacyPairs(): void {
+    if (this.privacyService === null || this.privacyService === undefined) return;
     
     const pxomPairs = this.privacyService.getPXOMPairs();
     
@@ -1418,7 +1495,7 @@ export class DecentralizedOrderBook extends EventEmitter {
    * @returns True if the pair involves pXOM
    */
   private isPrivacyPair(pair: string): boolean {
-    return pair.includes('pXOM') || (this.privacyService?.isPrivacyPair(pair) || false);
+    return pair.includes('pXOM') || (this.privacyService !== null && this.privacyService !== undefined && this.privacyService.isPrivacyPair(pair));
   }
   
   /**
@@ -1428,36 +1505,36 @@ export class DecentralizedOrderBook extends EventEmitter {
    * @returns Order result with privacy metadata
    */
   private async placePrivacyOrder(orderData: Partial<UnifiedOrder>): Promise<OrderResult> {
-    if (!this.privacyService) {
+    if (this.privacyService === null || this.privacyService === undefined) {
       throw new Error('Privacy service not available');
     }
     
     const orderId = await this.privacyService.createPrivacyOrder(
-      orderData.userId!,
-      orderData.pair!,
-      orderData.side as 'buy' | 'sell',
-      parseFloat(orderData.quantity!),
-      orderData.type?.toLowerCase() as 'market' | 'limit',
-      orderData.price ? parseFloat(orderData.price) : undefined,
+      orderData.userId ?? '',
+      orderData.pair ?? '',
+      (orderData.side as 'buy' | 'sell') ?? 'buy',
+      parseFloat(orderData.quantity ?? '0'),
+      (orderData.type?.toLowerCase() as 'market' | 'limit') ?? 'limit',
+      orderData.price !== null && orderData.price !== undefined ? parseFloat(orderData.price) : undefined,
       true // Use privacy by default for pXOM pairs
     );
     
     // Create order object for tracking
     const order: UnifiedOrder = {
       id: orderId,
-      userId: orderData.userId!,
-      type: orderData.type!,
-      side: orderData.side!,
-      pair: orderData.pair!,
-      quantity: orderData.quantity!,
-      ...(orderData.price && { price: orderData.price }),
-      timeInForce: orderData.timeInForce || 'GTC',
+      userId: orderData.userId ?? '',
+      type: orderData.type ?? 'LIMIT',
+      side: orderData.side ?? 'BUY',
+      pair: orderData.pair ?? '',
+      quantity: orderData.quantity ?? '0',
+      ...(orderData.price !== undefined && orderData.price !== null && orderData.price !== '' ? { price: orderData.price } : {}),
+      timeInForce: orderData.timeInForce ?? 'GTC',
       leverage: 1,
       reduceOnly: false,
       postOnly: false,
       status: 'OPEN',
       filled: '0',
-      remaining: orderData.quantity!,
+      remaining: orderData.quantity ?? '0',
       fees: '0',
       timestamp: Date.now(),
       updatedAt: Date.now(),
@@ -1490,8 +1567,8 @@ export class DecentralizedOrderBook extends EventEmitter {
    * Get privacy DEX statistics
    * @returns Privacy trading statistics and pool information
    */
-  async getPrivacyStats(): Promise<any> {
-    if (!this.privacyService) {
+  async getPrivacyStats(): Promise<{ privacyEnabled: boolean; [key: string]: unknown }> {
+    if (this.privacyService === null || this.privacyService === undefined) {
       return { privacyEnabled: false };
     }
     
@@ -1510,7 +1587,7 @@ export class DecentralizedOrderBook extends EventEmitter {
     direction: 'XOM_TO_PXOM' | 'PXOM_TO_XOM',
     amount: string
   ): Promise<ConversionResult> {
-    if (!this.privacyService) {
+    if (this.privacyService === null || this.privacyService === undefined) {
       throw new Error('Privacy service not available');
     }
     
@@ -1526,19 +1603,19 @@ export class DecentralizedOrderBook extends EventEmitter {
       usePrivacy: true
     });
     
-    if (!result.success) {
-      throw new Error(result.error || 'Conversion failed');
+    if (result.success !== true) {
+      throw new Error(result.error ?? 'Conversion failed');
     }
     
     return {
       success: true,
-      id: result.txHash || this.generateOrderId(),
+      id: (result.txHash !== null && result.txHash !== undefined) ? result.txHash : this.generateOrderId(),
       fromToken: tokenIn,
       fromAmount: amount,
       toToken: tokenOut,
-      toAmount: result.amountOut?.toString() || '0',
+      toAmount: (result.amountOut !== null && result.amountOut !== undefined) ? String(result.amountOut) : '0',
       conversionRate: '1', // 1:1 with fees
-      fees: result.fee?.toString() || '0',
+      fees: (result.fee !== null && result.fee !== undefined) ? result.fee.toString() : '0',
       actualSlippage: 0,
       timestamp: Date.now(),
       validatorApproval: true

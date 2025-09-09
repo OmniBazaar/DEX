@@ -1,7 +1,6 @@
 /**
  * DEX Validator Integration Tests
- * 
- * Tests the integration between DEX module and Avalanche validator services
+ * @file Tests the integration between DEX module and Avalanche validator services
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
@@ -37,7 +36,10 @@ describe('DEX Validator Integration', () => {
     retryAttempts: 3
   };
   
-  beforeEach(async () => {
+  /**
+   * Set up test environment before each test
+   */
+  beforeEach((): void => {
     // Create REAL client instance
     try {
       validatorClient = new AvalancheValidatorClient(testConfig);
@@ -47,6 +49,7 @@ describe('DEX Validator Integration', () => {
     
     } catch (error) {
       // If validator service is not running, tests will be skipped
+      // eslint-disable-next-line no-console
       console.log('Note: Validator service not available for integration testing');
     }
     
@@ -60,14 +63,26 @@ describe('DEX Validator Integration', () => {
     wsService = new ValidatorWebSocketService(ioServer);
   });
   
-  afterEach(async () => {
-    if (dexService) await dexService.close();
-    if (validatorClient) await validatorClient.close();
-    if (ioServer) ioServer.close();
+  /**
+   * Clean up resources after each test
+   */
+  afterEach(async (): Promise<void> => {
+    if (dexService) {
+      await dexService.close();
+    }
+    if (validatorClient) {
+      await validatorClient.close();
+    }
+    if (ioServer) {
+      void ioServer.close();
+    }
   });
   
   describe('ValidatorDEXService', () => {
-    it('should initialize successfully', async () => {
+    /**
+     * Tests successful initialization of ValidatorDEXService
+     */
+    it('should initialize successfully', async (): Promise<void> => {
       if (!dexService) {
         this.skip(); // Skip if validator not available
       }
@@ -80,7 +95,10 @@ describe('DEX Validator Integration', () => {
       expect(health.services).toBeDefined();
     });
     
-    it('should place order through validator', async () => {
+    /**
+     * Tests placing orders through validator
+     */
+    it('should place order through validator', async (): Promise<void> => {
       if (!dexService) {
         this.skip(); // Skip if validator not available
       }
@@ -105,7 +123,10 @@ describe('DEX Validator Integration', () => {
       expect(order).toHaveProperty('status');
     });
     
-    it('should get order book from validator', async () => {
+    /**
+     * Tests retrieving order book from validator
+     */
+    it('should get order book from validator', async (): Promise<void> => {
       if (!dexService) {
         this.skip(); // Skip if validator not available
       }
@@ -123,7 +144,10 @@ describe('DEX Validator Integration', () => {
       expect(orderBook).toHaveProperty('midPrice');
     });
     
-    it('should calculate fees correctly', () => {
+    /**
+     * Tests fee calculation logic
+     */
+    it('should calculate fees correctly', (): void => {
       // Maker fee
       const makerFee = dexService.calculateFees('1000', true);
       expect(makerFee).toEqual({
@@ -141,7 +165,10 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('should validate order parameters', async () => {
+    /**
+     * Tests order parameter validation
+     */
+    it('should validate order parameters', async (): Promise<void> => {
       await dexService.initialize();
       
       // Invalid order type
@@ -174,11 +201,17 @@ describe('DEX Validator Integration', () => {
   });
   
   describe('ValidatorAPI', () => {
-    beforeEach(async () => {
+    /**
+     * Initialize DEX service before each API test
+     */
+    beforeEach(async (): Promise<void> => {
       await dexService.initialize();
     });
     
-    it('GET /api/dex/pairs should return trading pairs', async () => {
+    /**
+     * Tests GET endpoint for trading pairs
+     */
+    it('GET /api/dex/pairs should return trading pairs', async (): Promise<void> => {
       const response = await request(app)
         .get('/api/dex/pairs')
         .expect(200);
@@ -189,7 +222,10 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('GET /api/dex/orderbook/:pair should return order book', async () => {
+    /**
+     * Tests GET endpoint for order book
+     */
+    it('GET /api/dex/orderbook/:pair should return order book', async (): Promise<void> => {
       const response = await request(app)
         .get('/api/dex/orderbook/XOM-USDC')
         .query({ depth: 10 })
@@ -205,7 +241,10 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('POST /api/dex/orders should place order', async () => {
+    /**
+     * Tests POST endpoint for placing orders
+     */
+    it('POST /api/dex/orders should place order', async (): Promise<void> => {
       const orderData = {
         type: 'BUY',
         tokenPair: 'XOM/USDC',
@@ -229,7 +268,10 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('POST /api/dex/fees/calculate should calculate fees', async () => {
+    /**
+     * Tests POST endpoint for fee calculation
+     */
+    it('POST /api/dex/fees/calculate should calculate fees', async (): Promise<void> => {
       const response = await request(app)
         .post('/api/dex/fees/calculate')
         .send({ amount: '1000', isMaker: true })
@@ -245,7 +287,10 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('should handle errors properly', async () => {
+    /**
+     * Tests error handling in API endpoints
+     */
+    it('should handle errors properly', async (): Promise<void> => {
       // Test with invalid pair to trigger an error
       const response = await request(app)
         .get('/api/dex/orderbook/INVALID-PAIR')
@@ -261,17 +306,28 @@ describe('DEX Validator Integration', () => {
   describe('ValidatorWebSocket', () => {
     let clientSocket: ClientSocket;
     
-    beforeEach((done) => {
+    /**
+     * Set up WebSocket connections before each test
+     * @param done - Jest done callback
+     */
+    beforeEach((done): void => {
       ioServer.listen(3001);
       clientSocket = ioClient('http://localhost:3001');
       clientSocket.on('connect', done);
     });
     
-    afterEach(() => {
+    /**
+     * Close WebSocket connections after each test
+     */
+    afterEach((): void => {
       clientSocket.close();
     });
     
-    it('should handle order book subscription', (done) => {
+    /**
+     * Tests order book subscription via WebSocket
+     * @param done - Jest done callback
+     */
+    it('should handle order book subscription', (done): void => {
       clientSocket.emit('subscribe:orderbook', ['XOM/USDC']);
       
       clientSocket.on('subscribed', (data) => {
@@ -283,7 +339,11 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('should handle order placement via WebSocket', (done) => {
+    /**
+     * Tests order placement via WebSocket
+     * @param done - Jest done callback
+     */
+    it('should handle order placement via WebSocket', (done): void => {
       const orderData = {
         type: 'BUY',
         tokenPair: 'XOM/USDC',
@@ -292,9 +352,9 @@ describe('DEX Validator Integration', () => {
         maker: '0x1234567890123456789012345678901234567890'
       };
       
-      clientSocket.emit('place:order', orderData, (response: any) => {
-        expect(response.success).toBe(true);
-        expect(response.order).toMatchObject({
+      clientSocket.emit('place:order', orderData, (response: unknown) => {
+        expect((response as { success: boolean }).success).toBe(true);
+        expect((response as { order: unknown }).order).toMatchObject({
           type: 'BUY',
           tokenPair: 'XOM/USDC'
         });
@@ -302,13 +362,19 @@ describe('DEX Validator Integration', () => {
       });
     });
     
-    it('should track connected clients', () => {
+    /**
+     * Tests client connection tracking
+     */
+    it('should track connected clients', (): void => {
       expect(wsService.getConnectedClientsCount()).toBe(1);
     });
   });
   
   describe('Integration Flow', () => {
-    it('should handle complete order flow', async () => {
+    /**
+     * Tests complete order flow integration
+     */
+    it('should handle complete order flow', async (): Promise<void> => {
       await dexService.initialize();
       
       // 1. Get initial order book
@@ -338,7 +404,10 @@ describe('DEX Validator Integration', () => {
       expect(cancelled).toBe(true);
     });
     
-    it('should integrate with fee distribution', async () => {
+    /**
+     * Tests integration with fee distribution system
+     */
+    it('should integrate with fee distribution', async (): Promise<void> => {
       await dexService.initialize();
       
       const order = await dexService.placeOrder({
@@ -360,7 +429,10 @@ describe('DEX Validator Integration', () => {
 });
 
 describe('Error Handling', () => {
-  it('should handle uninitialized service calls', async () => {
+  /**
+   * Tests handling of calls to uninitialized services
+   */
+  it('should handle uninitialized service calls', async (): Promise<void> => {
     const service = new ValidatorDEXService(testConfig);
     
     // Service should not throw when getting trading pairs even when uninitialized

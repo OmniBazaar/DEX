@@ -1,7 +1,6 @@
 /**
  * DEX Validator Integration Tests
- * 
- * Tests the integration between the DEX module and Validator services
+ * @file Tests the integration between the DEX module and Validator services
  */
 
 import { UnifiedValidatorDEX } from '../src/index';
@@ -20,7 +19,10 @@ describe('DEX Validator Integration', () => {
   let feeDistribution: FeeDistributionEngine;
   let blockchain: OmniCoinBlockchain;
 
-  beforeAll(async () => {
+  /**
+   * Set up test environment before all tests
+   */
+  beforeAll(async (): Promise<void> => {
     // Initialize validator client for testing
     validatorClient = new ValidatorClient({
       endpoint: 'localhost',
@@ -42,7 +44,10 @@ describe('DEX Validator Integration', () => {
     await orderBook.initialize();
   });
 
-  afterAll(async () => {
+  /**
+   * Clean up resources after all tests
+   */
+  afterAll(async (): Promise<void> => {
     if (validatorClient) {
       await validatorClient.disconnect();
     }
@@ -52,7 +57,10 @@ describe('DEX Validator Integration', () => {
   });
 
   describe('Order Book Integration', () => {
-    it('should submit orders successfully', async () => {
+    /**
+     * Tests successful order submission
+     */
+    it('should submit orders successfully', async (): Promise<void> => {
       const order = {
         userId: 'test-user-1',
         type: 'LIMIT',
@@ -69,20 +77,29 @@ describe('DEX Validator Integration', () => {
       expect(result.orderId).toBeDefined();
     });
 
-    it('should retrieve orders successfully', async () => {
+    /**
+     * Tests successful order retrieval
+     */
+    it('should retrieve orders successfully', async (): Promise<void> => {
       const orders = await orderBook.getUserOrders('test-user-1');
       
       expect(Array.isArray(orders)).toBe(true);
       expect(orders.length).toBeGreaterThan(0);
     });
 
-    it('should get trading pairs', async () => {
+    /**
+     * Tests retrieval of trading pairs
+     */
+    it('should get trading pairs', async (): Promise<void> => {
       const pairs = await orderBook.getTradingPairs();
       
       expect(Array.isArray(pairs)).toBe(true);
     });
 
-    it('should get order book data', async () => {
+    /**
+     * Tests retrieval of order book data
+     */
+    it('should get order book data', async (): Promise<void> => {
       const orderBookData = await orderBook.getOrderBook('XOM/USDC');
       
       expect(orderBookData).toBeDefined();
@@ -91,7 +108,10 @@ describe('DEX Validator Integration', () => {
   });
 
   describe('Market Data Integration', () => {
-    it('should get ticker data', async () => {
+    /**
+     * Tests retrieval of ticker data
+     */
+    it('should get ticker data', async (): Promise<void> => {
       const ticker = await orderBook.getTicker('XOM/USDC');
       
       expect(ticker).toBeDefined();
@@ -99,13 +119,19 @@ describe('DEX Validator Integration', () => {
       expect(ticker.timestamp).toBeDefined();
     });
 
-    it('should get all tickers', async () => {
+    /**
+     * Tests retrieval of all tickers
+     */
+    it('should get all tickers', async (): Promise<void> => {
       const tickers = await orderBook.getAllTickers();
       
       expect(Array.isArray(tickers)).toBe(true);
     });
 
-    it('should get market statistics', async () => {
+    /**
+     * Tests retrieval of market statistics
+     */
+    it('should get market statistics', async (): Promise<void> => {
       const stats = await orderBook.getMarketStatistics();
       
       expect(stats).toBeDefined();
@@ -115,7 +141,10 @@ describe('DEX Validator Integration', () => {
   });
 
   describe('Trading Operations', () => {
-    it('should handle portfolio requests', async () => {
+    /**
+     * Tests handling of portfolio requests
+     */
+    it('should handle portfolio requests', async (): Promise<void> => {
       const portfolio = await orderBook.getPortfolio('test-user-1');
       
       expect(portfolio).toBeDefined();
@@ -124,7 +153,10 @@ describe('DEX Validator Integration', () => {
       expect(portfolio.totalValue).toBeDefined();
     });
 
-    it('should handle trade history requests', async () => {
+    /**
+     * Tests handling of trade history requests
+     */
+    it('should handle trade history requests', async (): Promise<void> => {
       const trades = await orderBook.getUserTrades('test-user-1', {
         limit: 10,
         offset: 0
@@ -133,7 +165,10 @@ describe('DEX Validator Integration', () => {
       expect(Array.isArray(trades)).toBe(true);
     });
 
-    it('should handle order cancellation', async () => {
+    /**
+     * Tests handling of order cancellation
+     */
+    it('should handle order cancellation', async (): Promise<void> => {
       // First create an order
       const order = {
         userId: 'test-user-1',
@@ -149,13 +184,16 @@ describe('DEX Validator Integration', () => {
       expect(submitResult.success).toBe(true);
 
       // Then cancel it
-      const cancelResult = await orderBook.cancelOrder(submitResult.orderId!, 'test-user-1');
+      const cancelResult = await orderBook.cancelOrder(submitResult.orderId, 'test-user-1');
       expect(cancelResult.success).toBe(true);
     });
   });
 
   describe('Advanced Features', () => {
-    it('should handle perpetual orders', async () => {
+    /**
+     * Tests handling of perpetual orders
+     */
+    it('should handle perpetual orders', async (): Promise<void> => {
       const perpetualOrder = {
         type: 'LIMIT',
         side: 'LONG',
@@ -173,7 +211,10 @@ describe('DEX Validator Integration', () => {
       expect(result.orderId).toBeDefined();
     });
 
-    it('should handle auto-conversion', async () => {
+    /**
+     * Tests handling of auto-conversion to XOM
+     */
+    it('should handle auto-conversion', async (): Promise<void> => {
       const conversion = await orderBook.autoConvertToXOM(
         'test-user-1',
         'USDC',
@@ -186,7 +227,10 @@ describe('DEX Validator Integration', () => {
       expect(conversion.xomReceived).toBeDefined();
     });
 
-    it('should get perpetual positions', async () => {
+    /**
+     * Tests retrieval of perpetual positions
+     */
+    it('should get perpetual positions', async (): Promise<void> => {
       const positions = await orderBook.getPerpetualPositions('test-user-1');
       
       expect(Array.isArray(positions)).toBe(true);
@@ -194,14 +238,20 @@ describe('DEX Validator Integration', () => {
   });
 
   describe('Health and Status', () => {
-    it('should report healthy status', async () => {
+    /**
+     * Tests health status reporting
+     */
+    it('should report healthy status', async (): Promise<void> => {
       const health = await orderBook.getHealthStatus();
       
       expect(health.status).toBe('healthy');
       expect(health.details).toBeDefined();
     });
 
-    it('should provide service metrics', async () => {
+    /**
+     * Tests provision of service metrics
+     */
+    it('should provide service metrics', async (): Promise<void> => {
       const health = await orderBook.getHealthStatus();
       
       expect(health.details.totalOrders).toBeDefined();
@@ -211,7 +261,10 @@ describe('DEX Validator Integration', () => {
   });
 
   describe('Error Handling', () => {
-    it('should handle invalid orders gracefully', async () => {
+    /**
+     * Tests graceful handling of invalid orders
+     */
+    it('should handle invalid orders gracefully', async (): Promise<void> => {
       const invalidOrder = {
         userId: '', // Invalid: empty user ID
         type: 'INVALID_TYPE',
@@ -228,13 +281,19 @@ describe('DEX Validator Integration', () => {
       expect(result.error).toBeDefined();
     });
 
-    it('should handle non-existent orders', async () => {
+    /**
+     * Tests handling of non-existent orders
+     */
+    it('should handle non-existent orders', async (): Promise<void> => {
       const order = await orderBook.getOrder('non-existent-order-id');
       
       expect(order).toBeNull();
     });
 
-    it('should handle non-existent trading pairs', async () => {
+    /**
+     * Tests handling of non-existent trading pairs
+     */
+    it('should handle non-existent trading pairs', async (): Promise<void> => {
       const orderBookData = await orderBook.getOrderBook('INVALID/PAIR');
       
       expect(orderBookData).toBeNull();

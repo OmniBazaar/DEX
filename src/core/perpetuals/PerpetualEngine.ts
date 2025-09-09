@@ -139,6 +139,10 @@ export class PerpetualEngine extends EventEmitter {
   private nextPositionId = 1;
   private fundingTimer?: NodeJS.Timeout;
 
+  /**
+   * Create a new PerpetualEngine instance
+   * Initializes default markets and starts funding timer
+   */
   constructor() {
     super();
     this.initializeMarkets();
@@ -191,7 +195,7 @@ export class PerpetualEngine extends EventEmitter {
   /**
    * Add a new perpetual market to the trading engine
    * @param market - Market configuration including symbol, leverage, and fee parameters
-   * @emits market:added - When market is successfully added
+   * @fires market:added - When market is successfully added
    * @example
    * ```typescript
    * engine.addMarket({
@@ -230,7 +234,7 @@ export class PerpetualEngine extends EventEmitter {
    * @param params.price - Optional limit price
    * @returns Promise resolving to the created position
    * @throws {Error} If market is unavailable or parameters are invalid
-   * @emits position:opened - When position is successfully opened
+   * @fires position:opened - When position is successfully opened
    * @example
    * ```typescript
    * const position = await engine.openPosition({
@@ -242,16 +246,16 @@ export class PerpetualEngine extends EventEmitter {
    * });
    * ```
    */
-  async openPosition(params: {
+  openPosition(params: {
     trader: string;
     market: string;
     side: 'LONG' | 'SHORT';
     size: bigint;
     leverage: number;
     price?: bigint;
-  }): Promise<PerpetualPosition> {
+  }): PerpetualPosition {
     const market = this.markets.get(params.market);
-    if (!market || market.status !== 'ACTIVE') {
+    if (market === null || market === undefined || market.status !== 'ACTIVE') {
       throw new Error(`Market ${params.market} not available`);
     }
 
@@ -263,7 +267,7 @@ export class PerpetualEngine extends EventEmitter {
       throw new Error(`Size below minimum ${market.minSize}`);
     }
 
-    const markPrice = params.price || this.getMarkPrice(params.market);
+    const markPrice = (params.price !== null && params.price !== undefined && params.price !== 0n) ? params.price : this.getMarkPrice(params.market);
     const notionalValue = (params.size * markPrice) / BigInt(1e18);
     const margin = notionalValue / BigInt(params.leverage);
     
@@ -297,7 +301,7 @@ export class PerpetualEngine extends EventEmitter {
     this.positions.set(position.id, position);
     
     // Update open interest
-    const currentOI = this.openInterest.get(params.market) || 0n;
+    const currentOI = this.openInterest.get(params.market) ?? 0n;
     this.openInterest.set(params.market, currentOI + params.size);
 
     this.emit('position:opened', position);
@@ -311,7 +315,7 @@ export class PerpetualEngine extends EventEmitter {
    * @param price - Optional limit price for closing
    * @returns Promise resolving to updated position
    * @throws {Error} If position not found or invalid parameters
-   * @emits position:closed - When position is successfully closed
+   * @fires position:closed - When position is successfully closed
    * @example
    * ```typescript
    * // Close full position
@@ -321,22 +325,22 @@ export class PerpetualEngine extends EventEmitter {
    * await engine.closePosition('pos_123', BigInt(5e16));
    * ```
    */
-  async closePosition(
+  closePosition(
     positionId: string,
     size?: bigint,
     price?: bigint
-  ): Promise<PerpetualPosition> {
+  ): PerpetualPosition {
     const position = this.positions.get(positionId);
-    if (!position || position.status !== 'OPEN') {
+    if (position === null || position === undefined || position.status !== 'OPEN') {
       throw new Error(`Position ${positionId} not found or not open`);
     }
 
-    const closeSize = size || position.size;
+    const closeSize = (size !== null && size !== undefined && size !== 0n) ? size : position.size;
     if (closeSize > position.size) {
       throw new Error('Close size exceeds position size');
     }
 
-    const closePrice = price || this.getMarkPrice(position.market);
+    const closePrice = (price !== null && price !== undefined && price !== 0n) ? price : this.getMarkPrice(position.market);
     
     // Calculate PnL
     const pnl = this.calculatePnl(position, closePrice, closeSize);
@@ -354,7 +358,7 @@ export class PerpetualEngine extends EventEmitter {
     }
 
     // Update open interest
-    const currentOI = this.openInterest.get(position.market) || 0n;
+    const currentOI = this.openInterest.get(position.market) ?? 0n;
     this.openInterest.set(position.market, currentOI - closeSize);
 
     this.emit('position:closed', {
@@ -373,23 +377,23 @@ export class PerpetualEngine extends EventEmitter {
    * @param newLeverage - New leverage value (must be within market limits)
    * @returns Promise resolving to updated position
    * @throws {Error} If position not found or leverage exceeds limits
-   * @emits position:leverageUpdated - When leverage is successfully updated
+   * @fires position:leverageUpdated - When leverage is successfully updated
    * @example
    * ```typescript
    * const updated = await engine.updateLeverage('pos_123', 5);
    * ```
    */
-  async updateLeverage(
+  updateLeverage(
     positionId: string,
     newLeverage: number
-  ): Promise<PerpetualPosition> {
+  ): PerpetualPosition {
     const position = this.positions.get(positionId);
-    if (!position || position.status !== 'OPEN') {
+    if (position === null || position === undefined || position.status !== 'OPEN') {
       throw new Error(`Position ${positionId} not found or not open`);
     }
 
     const market = this.markets.get(position.market);
-    if (!market) {
+    if (market === null || market === undefined) {
       throw new Error(`Market ${position.market} not found`);
     }
 
@@ -419,15 +423,15 @@ export class PerpetualEngine extends EventEmitter {
    * Funding rate is based on premium/discount of mark vs index price
    * Longs pay shorts when funding is positive, shorts pay longs when negative
    * @private
-   * @emits funding:processed - For each market when funding is calculated
+   * @fires funding:processed - For each market when funding is calculated
    */
-  private async processFunding(): Promise<void> {
+  private processFunding(): void {
     const now = Date.now();
 
     for (const [marketSymbol, fundingRate] of this.fundingRates) {
       if (now >= fundingRate.nextFundingAt) {
         const market = this.markets.get(marketSymbol);
-        if (!market) continue;
+        if (market === null || market === undefined) continue;
 
         // Calculate funding rate based on mark vs index price
         const markPrice = this.getMarkPrice(marketSymbol);
@@ -463,7 +467,7 @@ export class PerpetualEngine extends EventEmitter {
         fundingRate.nextFundingAt = now + market.fundingInterval * 1000;
         fundingRate.markPrice = markPrice;
         fundingRate.indexPrice = indexPrice;
-        fundingRate.openInterest = this.openInterest.get(marketSymbol) || 0n;
+        fundingRate.openInterest = this.openInterest.get(marketSymbol) ?? 0n;
         fundingRate.timestamp = now;
 
         this.emit('funding:processed', {
@@ -478,15 +482,15 @@ export class PerpetualEngine extends EventEmitter {
   /**
    * Check all open positions and liquidate those below maintenance margin
    * Liquidated positions contribute remaining margin to insurance fund
-   * @emits position:liquidated - For each liquidated position
-   * @emits liquidations:batch - When multiple liquidations occur
+   * @fires position:liquidated - For each liquidated position
+   * @fires liquidations:batch - When multiple liquidations occur
    * @example
    * ```typescript
    * // Usually called automatically, but can be triggered manually
    * await engine.checkLiquidations();
    * ```
    */
-  async checkLiquidations(): Promise<void> {
+  checkLiquidations(): void {
     const liquidations: LiquidationEvent[] = [];
 
     for (const position of this.positions.values()) {
@@ -499,7 +503,7 @@ export class PerpetualEngine extends EventEmitter {
 
       if (shouldLiquidate) {
         const market = this.markets.get(position.market);
-        if (!market) continue;
+        if (market === null || market === undefined) continue;
 
         // Calculate liquidation fee (0.5% of notional)
         const notionalValue = (position.size * markPrice) / BigInt(1e18);
@@ -516,7 +520,7 @@ export class PerpetualEngine extends EventEmitter {
         this.insuranceFund += insuranceContribution;
 
         // Update open interest
-        const currentOI = this.openInterest.get(position.market) || 0n;
+        const currentOI = this.openInterest.get(position.market) ?? 0n;
         this.openInterest.set(position.market, currentOI - position.size);
 
         const liquidationEvent: LiquidationEvent = {
@@ -594,7 +598,7 @@ export class PerpetualEngine extends EventEmitter {
    * Update mark price for a market and recalculate unrealized PnL
    * @param market - Market symbol
    * @param price - New mark price (18 decimals)
-   * @emits markPrice:updated - When price is updated
+   * @fires markPrice:updated - When price is updated
    */
   updateMarkPrice(market: string, price: bigint): void {
     this.markPrices.set(market, price);
@@ -614,7 +618,7 @@ export class PerpetualEngine extends EventEmitter {
    * Update index price for a market (used for funding rate calculation)
    * @param market - Market symbol
    * @param price - New index price (18 decimals)
-   * @emits indexPrice:updated - When price is updated
+   * @fires indexPrice:updated - When price is updated
    */
   updateIndexPrice(market: string, price: bigint): void {
     this.indexPrices.set(market, price);
@@ -627,7 +631,7 @@ export class PerpetualEngine extends EventEmitter {
    * @returns Current mark price or 0n if not set
    */
   getMarkPrice(market: string): bigint {
-    return this.markPrices.get(market) || 0n;
+    return this.markPrices.get(market) ?? 0n;
   }
 
   /**
@@ -636,7 +640,7 @@ export class PerpetualEngine extends EventEmitter {
    * @returns Current index price or 0n if not set
    */
   getIndexPrice(market: string): bigint {
-    return this.indexPrices.get(market) || 0n;
+    return this.indexPrices.get(market) ?? 0n;
   }
 
   /**
@@ -682,7 +686,7 @@ export class PerpetualEngine extends EventEmitter {
    * @returns Total open interest in base currency
    */
   getOpenInterest(market: string): bigint {
-    return this.openInterest.get(market) || 0n;
+    return this.openInterest.get(market) ?? 0n;
   }
 
   /**
@@ -701,8 +705,17 @@ export class PerpetualEngine extends EventEmitter {
   private startFundingTimer(): void {
     // Process funding every minute
     this.fundingTimer = setInterval(() => {
-      this.processFunding().catch(console.error);
-      this.checkLiquidations().catch(console.error);
+      try {
+        this.processFunding();
+        this.checkLiquidations();
+      } catch (error) {
+        // Log error but don't throw to avoid breaking the timer
+        // In production, would use proper logger
+        if (error instanceof Error) {
+          // eslint-disable-next-line no-console
+          console.error('Funding/liquidation processing error:', error.message);
+        }
+      }
     }, 60000);
   }
 
@@ -711,7 +724,7 @@ export class PerpetualEngine extends EventEmitter {
    * Should be called when shutting down the engine
    */
   stopFundingTimer(): void {
-    if (this.fundingTimer) {
+    if (this.fundingTimer !== null && this.fundingTimer !== undefined) {
       clearInterval(this.fundingTimer);
       this.fundingTimer = undefined;
     }

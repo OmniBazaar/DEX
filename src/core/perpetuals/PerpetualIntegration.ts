@@ -10,11 +10,10 @@
 import { EventEmitter } from 'events';
 import { PerpetualEngine, PerpetualPosition, PerpetualMarket } from './PerpetualEngine';
 import { DecentralizedOrderBook } from '../dex/DecentralizedOrderBook';
-import { 
+import type { 
   PerpetualOrder, 
   Position, 
-  Trade,
-  UnifiedOrder 
+  Trade
 } from '../../types/config';
 import { logger } from '../../utils/logger';
 import { toWei, fromWei } from '../../constants/precision';
@@ -52,6 +51,9 @@ export class PerpetualIntegration extends EventEmitter {
   /** Map of user addresses to position IDs */
   private userPositions = new Map<string, Set<string>>();
   
+  /**
+   * Creates a new PerpetualIntegration instance
+   */
   constructor() {
     super();
     this.engine = new PerpetualEngine();
@@ -91,7 +93,7 @@ export class PerpetualIntegration extends EventEmitter {
    * Process a perpetual order from the order book
    * @param order - The perpetual order to process
    * @returns Integration result with position and trade details
-   * @emits perpetualPositionOpened - When position is successfully opened
+   * @fires perpetualPositionOpened - When position is successfully opened
    * @example
    * ```typescript
    * const result = await integration.processPerpetualOrder({
@@ -104,7 +106,7 @@ export class PerpetualIntegration extends EventEmitter {
    * });
    * ```
    */
-  async processPerpetualOrder(order: PerpetualOrder): Promise<IntegrationResult> {
+  processPerpetualOrder(order: PerpetualOrder): IntegrationResult {
     try {
       logger.info('Processing perpetual order', {
         orderId: order.id,
@@ -122,11 +124,11 @@ export class PerpetualIntegration extends EventEmitter {
         side,
         size: toWei(order.size.toString()),
         leverage: order.leverage,
-        price: order.price ? toWei(order.price.toString()) : undefined
+        price: order.price !== undefined ? toWei(order.price.toString()) : undefined
       };
 
       // Open position through engine
-      const position = await this.engine.openPosition(params);
+      const position = this.engine.openPosition(params);
       
       // Track order to position mapping
       this.orderToPosition.set(order.id, position.id);
@@ -190,7 +192,7 @@ export class PerpetualIntegration extends EventEmitter {
    * @param size - Optional size to close (closes full position if not specified)
    * @param price - Optional limit price for closing
    * @returns Integration result with updated position
-   * @emits perpetualPositionClosed - When position is successfully closed
+   * @fires perpetualPositionClosed - When position is successfully closed
    * @example
    * ```typescript
    * // Close full position
@@ -200,21 +202,21 @@ export class PerpetualIntegration extends EventEmitter {
    * await integration.closePosition('pos_123', '0.05', '51000');
    * ```
    */
-  async closePosition(
+  closePosition(
     positionId: string, 
     size?: string, 
     price?: string
-  ): Promise<IntegrationResult> {
+  ): IntegrationResult {
     try {
-      const position = await this.engine.closePosition(
+      const position = this.engine.closePosition(
         positionId,
-        size ? toWei(size) : undefined,
-        price ? toWei(price) : undefined
+        size !== undefined ? toWei(size) : undefined,
+        price !== undefined ? toWei(price) : undefined
       );
 
       // Remove from user positions if fully closed
       if (position.status === 'CLOSED') {
-        for (const [userId, positions] of this.userPositions) {
+        for (const [_userId, positions] of this.userPositions) {
           if (positions.has(positionId)) {
             positions.delete(positionId);
             break;
@@ -245,15 +247,15 @@ export class PerpetualIntegration extends EventEmitter {
    * @param positionId - ID of the position to update
    * @param newLeverage - New leverage value (must be within market limits)
    * @returns Integration result with updated position
-   * @emits perpetualLeverageUpdated - When leverage is successfully updated
+   * @fires perpetualLeverageUpdated - When leverage is successfully updated
    * @example
    * ```typescript
    * const result = await integration.updateLeverage('pos_123', 5);
    * ```
    */
-  async updateLeverage(positionId: string, newLeverage: number): Promise<IntegrationResult> {
+  updateLeverage(positionId: string, newLeverage: number): IntegrationResult {
     try {
-      const position = await this.engine.updateLeverage(positionId, newLeverage);
+      const position = this.engine.updateLeverage(positionId, newLeverage);
       
       this.emit('perpetualLeverageUpdated', position);
 
@@ -284,12 +286,12 @@ export class PerpetualIntegration extends EventEmitter {
    */
   getUserPositions(userId: string): PerpetualPosition[] {
     const positionIds = this.userPositions.get(userId);
-    if (!positionIds) return [];
+    if (positionIds === undefined) return [];
 
     const positions: PerpetualPosition[] = [];
     for (const id of positionIds) {
       const position = this.engine.getPosition(id);
-      if (position && position.status === 'OPEN') {
+      if (position !== undefined && position.status === 'OPEN') {
         positions.push(position);
       }
     }
@@ -365,9 +367,17 @@ export class PerpetualIntegration extends EventEmitter {
    * @param market - Market symbol
    * @returns Funding rate data with human-readable values, or null if not available
    */
-  getFundingRate(market: string) {
+  getFundingRate(market: string): {
+    market: string;
+    rate: number;
+    nextFundingAt: number;
+    markPrice: number;
+    indexPrice: number;
+    openInterest: number;
+    timestamp: number;
+  } | null {
     const rate = this.engine.getFundingRate(market);
-    if (!rate) return null;
+    if (rate === undefined) return null;
 
     return {
       market: rate.market,
@@ -402,7 +412,7 @@ export class PerpetualIntegration extends EventEmitter {
    * @private
    */
   private setupEngineListeners(): void {
-    this.engine.on('position:opened', (position) => {
+    this.engine.on('position:opened', (position: PerpetualPosition) => {
       logger.info('Position opened', { 
         id: position.id, 
         trader: position.trader,
@@ -412,14 +422,14 @@ export class PerpetualIntegration extends EventEmitter {
       });
     });
 
-    this.engine.on('position:closed', (data) => {
+    this.engine.on('position:closed', (data: { position: PerpetualPosition; pnl: bigint }) => {
       logger.info('Position closed', { 
         id: data.position.id,
         pnl: fromWei(data.pnl)
       });
     });
 
-    this.engine.on('position:liquidated', (event) => {
+    this.engine.on('position:liquidated', (event: { positionId: string; trader: string; market: string; fee: bigint }) => {
       logger.warn('Position liquidated', {
         positionId: event.positionId,
         trader: event.trader,
@@ -428,12 +438,12 @@ export class PerpetualIntegration extends EventEmitter {
       });
       
       // Notify order book of liquidation
-      if (this.orderBook) {
+      if (this.orderBook !== undefined) {
         this.orderBook.emit('perpetualLiquidation', event);
       }
     });
 
-    this.engine.on('funding:processed', (data) => {
+    this.engine.on('funding:processed', (data: { market: string; rate: bigint; timestamp: number }) => {
       logger.info('Funding processed', {
         market: data.market,
         rate: fromWei(data.rate),
@@ -447,19 +457,20 @@ export class PerpetualIntegration extends EventEmitter {
    * @private
    */
   private setupOrderBookListeners(): void {
-    if (!this.orderBook) return;
+    if (this.orderBook === undefined) return;
 
     // Listen for perpetual orders from order book
-    this.orderBook.on('perpetualOrderPlaced', async (order: PerpetualOrder) => {
-      await this.processPerpetualOrder(order);
+    this.orderBook.on('perpetualOrderPlaced', (order: PerpetualOrder) => {
+      void this.processPerpetualOrder(order);
     });
   }
 
   /**
    * Initialize default markets with initial prices
    * @private
+   * @returns Promise that resolves when markets are initialized
    */
-  private async initializeMarkets(): Promise<void> {
+  private initializeMarkets(): Promise<void> {
     // Markets are already initialized in PerpetualEngine constructor
     // Update with current prices if available
     
@@ -471,6 +482,7 @@ export class PerpetualIntegration extends EventEmitter {
     this.engine.updateIndexPrice('ETH-USD', toWei('3000'));
     
     logger.info('Perpetual markets initialized with default prices');
+    return Promise.resolve();
   }
 
   /**
@@ -506,11 +518,13 @@ export class PerpetualIntegration extends EventEmitter {
   /**
    * Cleanup resources and stop all timers
    * Should be called when shutting down the service
+   * @returns Promise that resolves when shutdown is complete
    */
-  async shutdown(): Promise<void> {
+  shutdown(): Promise<void> {
     this.engine.stopFundingTimer();
     this.removeAllListeners();
     logger.info('Perpetual Integration shutdown complete');
+    return Promise.resolve();
   }
 }
 

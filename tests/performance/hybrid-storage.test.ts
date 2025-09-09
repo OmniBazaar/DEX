@@ -1,7 +1,6 @@
 /**
  * Performance Tests for Hybrid Storage Architecture
- * 
- * Demonstrates that hybrid storage meets DEX performance requirements:
+ * @file Demonstrates that hybrid storage meets DEX performance requirements
  * - Hot storage: <10ms latency
  * - Warm storage: <100ms latency  
  * - Order placement: 10,000+ orders/second
@@ -15,17 +14,24 @@ import { getStorageConfig } from '../../src/config/storage.config';
 describe('Hybrid Storage Performance', () => {
   let storage: HybridDEXStorage;
   
-  beforeAll(async () => {
+  /**
+   * Initialize storage with test configuration
+   */
+  beforeAll((): void => {
     // Initialize storage with test configuration
     const config = getStorageConfig();
     storage = new HybridDEXStorage(config);
     
     // Mock initialization for testing
     // In real tests, would connect to actual services
+    // eslint-disable-next-line no-console
     console.log('Initializing hybrid storage for performance testing...');
   });
   
-  afterAll(async () => {
+  /**
+   * Clean up resources after all tests
+   */
+  afterAll(async (): Promise<void> => {
     if (storage) {
       await storage.shutdown();
     }
@@ -33,7 +39,10 @@ describe('Hybrid Storage Performance', () => {
   });
   
   describe('Latency Requirements', () => {
-    it('should achieve <10ms latency for hot storage operations', async () => {
+    /**
+     * Tests hot storage latency requirements
+     */
+    it('should achieve <10ms latency for hot storage operations', async (): Promise<void> => {
       const results: number[] = [];
       
       // Simulate 100 hot storage reads
@@ -55,12 +64,16 @@ describe('Hybrid Storage Performance', () => {
       }
       
       const avgLatency = results.reduce((a, b) => a + b, 0) / results.length;
+      // eslint-disable-next-line no-console
       console.log(`Hot storage average latency: ${avgLatency.toFixed(2)}ms`);
       
       expect(avgLatency).toBeLessThan(10);
     });
     
-    it('should achieve <100ms latency for warm storage operations', async () => {
+    /**
+     * Tests warm storage latency requirements
+     */
+    it('should achieve <100ms latency for warm storage operations', async (): Promise<void> => {
       const results: number[] = [];
       
       // Simulate 50 warm storage queries
@@ -81,6 +94,7 @@ describe('Hybrid Storage Performance', () => {
       }
       
       const avgLatency = results.reduce((a, b) => a + b, 0) / results.length;
+      // eslint-disable-next-line no-console
       console.log(`Warm storage average latency: ${avgLatency.toFixed(2)}ms`);
       
       expect(avgLatency).toBeLessThan(100);
@@ -88,7 +102,10 @@ describe('Hybrid Storage Performance', () => {
   });
   
   describe('Throughput Requirements', () => {
-    it('should handle 10,000+ orders per second', async () => {
+    /**
+     * Tests throughput requirements for order processing
+     */
+    it('should handle 10,000+ orders per second', async (): Promise<void> => {
       const orderCount = 10000;
       const orders: UnifiedOrder[] = [];
       
@@ -148,7 +165,9 @@ describe('Hybrid Storage Performance', () => {
       const duration = Date.now() - start;
       const throughput = (orderCount / duration) * 1000; // orders per second
       
+      // eslint-disable-next-line no-console
       console.log(`Processed ${orderCount} orders in ${duration}ms`);
+      // eslint-disable-next-line no-console
       console.log(`Throughput: ${throughput.toFixed(0)} orders/second`);
       
       expect(throughput).toBeGreaterThan(10000);
@@ -156,7 +175,10 @@ describe('Hybrid Storage Performance', () => {
   });
   
   describe('Storage Tier Performance', () => {
-    it('should demonstrate performance improvements with hybrid architecture', async () => {
+    /**
+     * Compares hybrid storage performance vs IPFS-only storage
+     */
+    it('should demonstrate performance improvements with hybrid architecture', async (): Promise<void> => {
       const testCases = [
         { operation: 'getOrderBook', count: 1000 },
         { operation: 'placeOrder', count: 500 },
@@ -164,6 +186,7 @@ describe('Hybrid Storage Performance', () => {
       ];
       
       for (const testCase of testCases) {
+        // eslint-disable-next-line no-console
         console.log(`\nTesting ${testCase.operation}:`);
         
         // Test IPFS-only (cold storage)
@@ -204,8 +227,11 @@ describe('Hybrid Storage Performance', () => {
         const hybridAvg = hybridResults.reduce((a, b) => a + b, 0) / hybridResults.length;
         const improvement = ((ipfsAvg - hybridAvg) / ipfsAvg) * 100;
         
+        // eslint-disable-next-line no-console
         console.log(`  IPFS-only avg: ${ipfsAvg.toFixed(2)}ms`);
+        // eslint-disable-next-line no-console
         console.log(`  Hybrid avg: ${hybridAvg.toFixed(2)}ms`);
+        // eslint-disable-next-line no-console
         console.log(`  Improvement: ${improvement.toFixed(0)}%`);
         
         expect(hybridAvg).toBeLessThan(ipfsAvg);
@@ -215,24 +241,38 @@ describe('Hybrid Storage Performance', () => {
   });
   
   describe('Performance Monitoring', () => {
-    it('should generate performance report', () => {
+    /**
+     * Generates and validates performance report
+     */
+    it('should generate performance report', (): void => {
       const report = performanceMonitor.getPerformanceReport();
       
+      // eslint-disable-next-line no-console
       console.log('\nPerformance Report:');
+      // eslint-disable-next-line no-console
       console.log('Total Operations:', report.summary.totalOperations);
+      // eslint-disable-next-line no-console
       console.log('Time Window:', report.summary.timeWindow.toFixed(0), 'seconds');
       
       for (const op of report.summary.operations) {
+        // eslint-disable-next-line no-console
         console.log(`\n${op.operation}:`);
+        // eslint-disable-next-line no-console
         console.log(`  Count: ${op.count}`);
+        // eslint-disable-next-line no-console
         console.log(`  Avg Latency: ${op.avgLatency.toFixed(2)}ms`);
+        // eslint-disable-next-line no-console
         console.log(`  P95 Latency: ${op.p95Latency.toFixed(2)}ms`);
+        // eslint-disable-next-line no-console
         console.log(`  Success Rate: ${(op.successRate * 100).toFixed(0)}%`);
+        // eslint-disable-next-line no-console
         console.log(`  Throughput: ${op.throughput.toFixed(0)} ops/s`);
       }
       
       if (report.recommendations.length > 0) {
+        // eslint-disable-next-line no-console
         console.log('\nRecommendations:');
+        // eslint-disable-next-line no-console
         report.recommendations.forEach((rec: string) => console.log(`  - ${rec}`));
       }
       

@@ -9,16 +9,31 @@
 
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger';
-import OmniCoreABI from '../../../Coin/artifacts/contracts/OmniCore.sol/OmniCore.json';
+import * as OmniCoreABI from '../../../Coin/artifacts/contracts/OmniCore.sol/OmniCore.json';
 
 /**
  * Settlement data for on-chain trade
  */
 export interface SettlementData {
+  /**
+   * Buyer's Ethereum address
+   */
   buyer: string;
+  /**
+   * Seller's Ethereum address
+   */
   seller: string;
+  /**
+   * Token contract address
+   */
   token: string;
+  /**
+   * Amount being traded in wei
+   */
   amount: string;
+  /**
+   * Unique order identifier
+   */
   orderId: string;
 }
 
@@ -26,10 +41,25 @@ export interface SettlementData {
  * Batch settlement data
  */
 export interface BatchSettlementData {
+  /**
+   * Array of buyer addresses
+   */
   buyers: string[];
+  /**
+   * Array of seller addresses
+   */
   sellers: string[];
+  /**
+   * Array of token contract addresses
+   */
   tokens: string[];
+  /**
+   * Array of amounts in wei
+   */
   amounts: string[];
+  /**
+   * Unique batch identifier
+   */
   batchId: string;
 }
 
@@ -37,9 +67,21 @@ export interface BatchSettlementData {
  * DEX deposit/withdrawal result
  */
 export interface TransactionResult {
+  /**
+   * Whether the transaction was successful
+   */
   success: boolean;
+  /**
+   * Transaction hash if successful
+   */
   txHash?: string;
+  /**
+   * Block number where transaction was mined
+   */
   blockNumber?: number;
+  /**
+   * Error message if transaction failed
+   */
   error?: string;
 }
 
@@ -47,11 +89,29 @@ export interface TransactionResult {
  * Contract configuration
  */
 export interface ContractConfig {
+  /**
+   * OmniCore smart contract address
+   */
   contractAddress: string;
+  /**
+   * Ethereum provider RPC URL
+   */
   providerUrl: string;
+  /**
+   * Private key for signing transactions
+   */
   privateKey?: string;
+  /**
+   * Gas limit for transactions
+   */
   gasLimit?: number;
+  /**
+   * Gas price in wei
+   */
   gasPrice?: string;
+  /**
+   * Number of confirmations to wait
+   */
   confirmations?: number;
 }
 
@@ -68,6 +128,10 @@ export class ContractService {
   private oddaoAddress?: string;
   private stakingPoolAddress?: string;
   
+  /**
+   * Creates a new Contract Service instance
+   * @param config - Contract configuration including address and provider settings
+   */
   constructor(config: ContractConfig) {
     this.config = {
       gasLimit: 500000,
@@ -80,18 +144,18 @@ export class ContractService {
     this.provider = new ethers.JsonRpcProvider(config.providerUrl);
     
     // Initialize signer if private key provided
-    if (config.privateKey) {
+    if (config.privateKey !== undefined && config.privateKey !== null && config.privateKey.length > 0) {
       this.signer = new ethers.Wallet(config.privateKey, this.provider);
     }
     
     // Initialize contract
     this.contract = new ethers.Contract(
       config.contractAddress,
-      OmniCoreABI.abi,
-      this.signer || this.provider
+      OmniCoreABI.abi as ethers.InterfaceAbi,
+      this.signer ?? this.provider
     );
     
-    this.initialize();
+    void this.initialize();
   }
   
   /**
@@ -100,8 +164,20 @@ export class ContractService {
   private async initialize(): Promise<void> {
     try {
       // Get fee recipient addresses from contract
-      this.oddaoAddress = await this.contract.oddaoAddress?.() || '0x0000000000000000000000000000000000000000';
-      this.stakingPoolAddress = await this.contract.stakingPoolAddress?.() || '0x0000000000000000000000000000000000000000';
+      const oddaoFunc = this.contract.oddaoAddress as (() => Promise<string>) | undefined;
+      const stakingPoolFunc = this.contract.stakingPoolAddress as (() => Promise<string>) | undefined;
+      
+      if (oddaoFunc !== undefined) {
+        this.oddaoAddress = await oddaoFunc();
+      } else {
+        this.oddaoAddress = '0x0000000000000000000000000000000000000000';
+      }
+      
+      if (stakingPoolFunc !== undefined) {
+        this.stakingPoolAddress = await stakingPoolFunc();
+      } else {
+        this.stakingPoolAddress = '0x0000000000000000000000000000000000000000';
+      }
       
       logger.info('Contract service initialized', {
         contractAddress: this.config.contractAddress,
@@ -115,6 +191,10 @@ export class ContractService {
   
   /**
    * Deposit tokens to DEX
+   * @param token - Token contract address
+   * @param amount - Amount to deposit in wei
+   * @param userAddress - Optional user address for validation
+   * @returns Promise resolving to transaction result
    */
   async depositToDEX(
     token: string,
@@ -122,7 +202,7 @@ export class ContractService {
     userAddress?: string
   ): Promise<TransactionResult> {
     try {
-      if (!this.signer && !userAddress) {
+      if (this.signer === undefined && (userAddress === undefined || userAddress === null || userAddress.length === 0)) {
         return {
           success: false,
           error: 'No signer or user address provided'
@@ -136,14 +216,16 @@ export class ContractService {
         this.signer
       );
       
-      const approveTx = await tokenContract.approve!(
+      const approveFunc = tokenContract.approve as (spender: string, amount: string) => Promise<ethers.ContractTransactionResponse>;
+      const approveTx = await approveFunc(
         this.config.contractAddress,
         amount
       );
       await approveTx.wait(this.config.confirmations);
       
       // Deposit to DEX
-      const tx = await this.contract.depositToDEX!(
+      const depositFunc = this.contract.depositToDEX as (token: string, amount: string, overrides: ethers.Overrides) => Promise<ethers.ContractTransactionResponse>;
+      const tx = await depositFunc(
         token,
         amount,
         {
@@ -153,6 +235,13 @@ export class ContractService {
       );
       
       const receipt = await tx.wait(this.config.confirmations);
+      
+      if (receipt === null) {
+        return {
+          success: false,
+          error: 'Transaction receipt not found'
+        };
+      }
       
       logger.info('DEX deposit successful', {
         txHash: receipt.hash,
@@ -177,20 +266,24 @@ export class ContractService {
   
   /**
    * Withdraw tokens from DEX
+   * @param token - Token contract address
+   * @param amount - Amount to withdraw in wei
+   * @returns Promise resolving to transaction result
    */
   async withdrawFromDEX(
     token: string,
     amount: string
   ): Promise<TransactionResult> {
     try {
-      if (!this.signer) {
+      if (this.signer === undefined || this.signer === null) {
         return {
           success: false,
           error: 'No signer provided'
         };
       }
       
-      const tx = await this.contract.withdrawFromDEX!(
+      const withdrawFunc = this.contract.withdrawFromDEX as (token: string, amount: string, overrides: ethers.Overrides) => Promise<ethers.ContractTransactionResponse>;
+      const tx = await withdrawFunc(
         token,
         amount,
         {
@@ -200,6 +293,13 @@ export class ContractService {
       );
       
       const receipt = await tx.wait(this.config.confirmations);
+      
+      if (receipt === null) {
+        return {
+          success: false,
+          error: 'Transaction receipt not found'
+        };
+      }
       
       logger.info('DEX withdrawal successful', {
         txHash: receipt.hash,
@@ -224,10 +324,12 @@ export class ContractService {
   
   /**
    * Settle a DEX trade on-chain
+   * @param settlement - Settlement data including buyer, seller, token, and amount
+   * @returns Promise resolving to transaction result
    */
   async settleDEXTrade(settlement: SettlementData): Promise<TransactionResult> {
     try {
-      if (!this.signer) {
+      if (this.signer === undefined || this.signer === null) {
         return {
           success: false,
           error: 'No validator signer provided'
@@ -235,19 +337,28 @@ export class ContractService {
       }
       
       // Check if signer has AVALANCHE_VALIDATOR_ROLE
-      const hasRole = await this.contract.hasRole!(
+      const hasRoleFunc = this.contract.hasRole as (role: string, account: string) => Promise<boolean>;
+      const hasRole = await hasRoleFunc(
         ethers.keccak256(ethers.toUtf8Bytes('AVALANCHE_VALIDATOR_ROLE')),
         await this.signer.getAddress()
       );
       
-      if (!hasRole) {
+      if (hasRole !== true) {
         return {
           success: false,
           error: 'Signer does not have validator role'
         };
       }
       
-      const tx = await this.contract.settleDEXTrade!(
+      const settleFunc = this.contract.settleDEXTrade as (
+        buyer: string,
+        seller: string,
+        token: string,
+        amount: string,
+        orderId: string,
+        overrides: ethers.Overrides
+      ) => Promise<ethers.ContractTransactionResponse>;
+      const tx = await settleFunc(
         settlement.buyer,
         settlement.seller,
         settlement.token,
@@ -261,13 +372,23 @@ export class ContractService {
       
       const receipt = await tx.wait(this.config.confirmations);
       
-      // Parse DEXSettlement event
-      const settlementEvent = receipt.logs.find((log: any) => {
+      if (receipt === null) {
+        return {
+          success: false,
+          error: 'Transaction receipt not found'
+        };
+      }
+      
+      // Parse DEXSettlement event for logging
+      const _settlementEvent = receipt.logs.find((log: ethers.Log) => {
         try {
-          const iface = this.contract?.interface;
-          if (!iface) return false;
-          const parsed = iface.parseLog(log as any);
-          return parsed?.name === 'DEXSettlement';
+          const iface = this.contract.interface;
+          if (iface === undefined || iface === null) return false;
+          const parsed = iface.parseLog({
+            topics: [...log.topics] as [string, ...string[]],
+            data: log.data
+          });
+          return parsed !== null && parsed.name === 'DEXSettlement';
         } catch {
           return false;
         }
@@ -297,10 +418,12 @@ export class ContractService {
   
   /**
    * Batch settle multiple DEX trades
+   * @param batch - Batch settlement data with arrays of trades
+   * @returns Promise resolving to transaction result
    */
   async batchSettleDEX(batch: BatchSettlementData): Promise<TransactionResult> {
     try {
-      if (!this.signer) {
+      if (this.signer === undefined || this.signer === null) {
         return {
           success: false,
           error: 'No validator signer provided'
@@ -308,31 +431,47 @@ export class ContractService {
       }
       
       // Check validator role
-      const hasRole = await this.contract.hasRole!(
+      const hasRoleFunc = this.contract.hasRole as (role: string, account: string) => Promise<boolean>;
+      const hasRole = await hasRoleFunc(
         ethers.keccak256(ethers.toUtf8Bytes('AVALANCHE_VALIDATOR_ROLE')),
         await this.signer.getAddress()
       );
       
-      if (!hasRole) {
+      if (hasRole !== true) {
         return {
           success: false,
           error: 'Signer does not have validator role'
         };
       }
       
-      const tx = await this.contract.batchSettleDEX!(
+      const batchSettleFunc = this.contract.batchSettleDEX as (
+        buyers: string[],
+        sellers: string[],
+        tokens: string[],
+        amounts: string[],
+        batchId: string,
+        overrides: ethers.Overrides
+      ) => Promise<ethers.ContractTransactionResponse>;
+      const tx = await batchSettleFunc(
         batch.buyers,
         batch.sellers,
         batch.tokens,
         batch.amounts,
         ethers.encodeBytes32String(batch.batchId),
         {
-          gasLimit: (this.config.gasLimit || 500000) * 2, // Higher gas for batch
+          gasLimit: (this.config.gasLimit ?? 500000) * 2, // Higher gas for batch
           gasPrice: this.config.gasPrice
         }
       );
       
       const receipt = await tx.wait(this.config.confirmations);
+      
+      if (receipt === null) {
+        return {
+          success: false,
+          error: 'Transaction receipt not found'
+        };
+      }
       
       logger.info('Batch DEX settlement successful', {
         txHash: receipt.hash,
@@ -358,6 +497,10 @@ export class ContractService {
   /**
    * Distribute DEX fees according to tokenomics
    * 70% ODDAO, 20% Staking, 10% Validator
+   * @param token - Token contract address for fee distribution
+   * @param totalFee - Total fee amount to distribute
+   * @param validatorAddress - Address of the validator receiving 10% fee
+   * @returns Promise resolving to transaction result
    */
   async distributeDEXFees(
     token: string,
@@ -365,14 +508,20 @@ export class ContractService {
     validatorAddress: string
   ): Promise<TransactionResult> {
     try {
-      if (!this.signer) {
+      if (this.signer === undefined || this.signer === null) {
         return {
           success: false,
           error: 'No validator signer provided'
         };
       }
       
-      const tx = await this.contract.distributeDEXFees!(
+      const distributeFeeFunc = this.contract.distributeDEXFees as (
+        token: string,
+        totalFee: string,
+        validatorAddress: string,
+        overrides: ethers.Overrides
+      ) => Promise<ethers.ContractTransactionResponse>;
+      const tx = await distributeFeeFunc(
         token,
         totalFee,
         validatorAddress,
@@ -383,6 +532,13 @@ export class ContractService {
       );
       
       const receipt = await tx.wait(this.config.confirmations);
+      
+      if (receipt === null) {
+        return {
+          success: false,
+          error: 'Transaction receipt not found'
+        };
+      }
       
       logger.info('DEX fees distributed', {
         txHash: receipt.hash,
@@ -408,10 +564,14 @@ export class ContractService {
   
   /**
    * Get user's DEX balance
+   * @param user - User's Ethereum address
+   * @param token - Token contract address
+   * @returns Promise resolving to balance string in wei
    */
   async getDEXBalance(user: string, token: string): Promise<string> {
     try {
-      const balance = await this.contract.getDEXBalance!(user, token);
+      const getBalanceFunc = this.contract.getDEXBalance as (user: string, token: string) => Promise<bigint>;
+      const balance = await getBalanceFunc(user, token);
       return balance.toString();
     } catch (error) {
       logger.error('Failed to get DEX balance:', error);
@@ -421,10 +581,13 @@ export class ContractService {
   
   /**
    * Check if address is a validator
+   * @param address - Address to check for validator status
+   * @returns Promise resolving to true if address is a validator
    */
   async isValidator(address: string): Promise<boolean> {
     try {
-      return await this.contract.isValidator!(address);
+      const isValidatorFunc = this.contract.isValidator as (address: string) => Promise<boolean>;
+      return await isValidatorFunc(address);
     } catch (error) {
       logger.error('Failed to check validator status:', error);
       return false;
@@ -433,18 +596,20 @@ export class ContractService {
   
   /**
    * Set signer for transactions
+   * @param signer - Ethereum signer instance
    */
   setSigner(signer: ethers.Signer): void {
     this.signer = signer;
     this.contract = new ethers.Contract(
       this.config.contractAddress,
-      OmniCoreABI.abi,
+      OmniCoreABI.abi as ethers.InterfaceAbi,
       signer
     );
   }
   
   /**
    * Get contract instance
+   * @returns Ethers contract instance
    */
   getContract(): ethers.Contract {
     return this.contract;
@@ -452,6 +617,7 @@ export class ContractService {
   
   /**
    * Get provider instance
+   * @returns Ethers provider instance
    */
   getProvider(): ethers.Provider {
     return this.provider;
@@ -459,67 +625,115 @@ export class ContractService {
   
   /**
    * Estimate gas for DEX deposit
+   * @param token - Token contract address
+   * @param amount - Amount to deposit in wei
+   * @returns Promise resolving to estimated gas amount
    */
   async estimateDepositGas(token: string, amount: string): Promise<bigint> {
     try {
-      const depositFunc = this.contract.depositToDEX;
-      if (!depositFunc) return BigInt(this.config.gasLimit || 500000);
-      const estimate = await depositFunc.estimateGas(
-        token,
-        amount
-      );
+      interface ContractWithDepositFunction {
+        depositToDEX?: {
+          estimateGas: (token: string, amount: string) => Promise<bigint>;
+        };
+      }
+      
+      const contractWithFunc = this.contract as ContractWithDepositFunction;
+      const depositFunc = contractWithFunc.depositToDEX;
+      
+      if (depositFunc === undefined) {
+        return BigInt(this.config.gasLimit ?? 500000);
+      }
+      
+      const estimate = await depositFunc.estimateGas(token, amount);
       return estimate;
     } catch (error) {
       logger.error('Failed to estimate gas:', error);
-      return BigInt(this.config.gasLimit || 500000);
+      return BigInt(this.config.gasLimit ?? 500000);
     }
   }
   
   /**
    * Estimate gas for DEX withdrawal
+   * @param token - Token contract address
+   * @param amount - Amount to withdraw in wei
+   * @returns Promise resolving to estimated gas amount
    */
   async estimateWithdrawGas(token: string, amount: string): Promise<bigint> {
     try {
-      const withdrawFunc = this.contract.withdrawFromDEX;
-      if (!withdrawFunc) return BigInt(this.config.gasLimit || 500000);
-      const estimate = await withdrawFunc.estimateGas(
-        token,
-        amount
-      );
+      interface ContractWithWithdrawFunction {
+        withdrawFromDEX?: {
+          estimateGas: (token: string, amount: string) => Promise<bigint>;
+        };
+      }
+      
+      const contractWithFunc = this.contract as ContractWithWithdrawFunction;
+      const withdrawFunc = contractWithFunc.withdrawFromDEX;
+      
+      if (withdrawFunc === undefined) {
+        return BigInt(this.config.gasLimit ?? 500000);
+      }
+      
+      const estimate = await withdrawFunc.estimateGas(token, amount);
       return estimate;
     } catch (error) {
       logger.error('Failed to estimate gas:', error);
-      return BigInt(this.config.gasLimit || 500000);
+      return BigInt(this.config.gasLimit ?? 500000);
     }
   }
   
   /**
    * Listen for DEX settlement events
+   * @param callback - Callback function to handle settlement events
    */
-  onSettlement(callback: (event: any) => void): void {
-    this.contract.on('DEXSettlement', (buyer, seller, token, amount, orderId, event) => {
+  onSettlement(callback: (event: {
+    buyer: string;
+    seller: string;
+    token: string;
+    amount: string;
+    orderId: string;
+    blockNumber: number;
+    transactionHash: string;
+  }) => void): void {
+    void this.contract.on('DEXSettlement', (
+      buyer: string,
+      seller: string,
+      token: string,
+      amount: bigint,
+      orderId: string,
+      event: ethers.Log
+    ) => {
       callback({
         buyer,
         seller,
         token,
         amount: amount.toString(),
         orderId,
-        blockNumber: event.blockNumber,
-        transactionHash: event.transactionHash
+        blockNumber: event.blockNumber ?? 0,
+        transactionHash: event.transactionHash ?? ''
       });
     });
   }
   
   /**
    * Listen for batch settlement events
+   * @param callback - Callback function to handle batch settlement events
    */
-  onBatchSettlement(callback: (event: any) => void): void {
-    this.contract.on('BatchSettlement', (batchId, count, event) => {
+  onBatchSettlement(callback: (event: {
+    batchId: string;
+    count: string;
+    blockNumber: number;
+    transactionHash: string;
+  }) => void): void {
+    void this.contract.on('BatchSettlement', (
+      batchId: string,
+      count: bigint,
+      event: ethers.Log
+    ) => {
       callback({
         batchId,
         count: count.toString(),
-        blockNumber: event.blockNumber,
-        transactionHash: event.transactionHash
+        blockNumber: event.blockNumber ?? 0,
+        transactionHash: event.transactionHash ?? ''
       });
     });
   }
@@ -528,7 +742,7 @@ export class ContractService {
    * Stop listening to events
    */
   removeAllListeners(): void {
-    this.contract.removeAllListeners();
+    void this.contract.removeAllListeners();
   }
 }
 

@@ -70,8 +70,8 @@ export function toDisplayAmount(amount: bigint | string, decimals: number = QUAN
   const bn = typeof amount === 'string' ? BigInt(amount) : amount;
   const formatted = ethers.formatUnits(bn, OMNICOIN_DECIMALS);
   const parts = formatted.split('.');
-  const wholePart = parts[0] || '0';
-  const fractionalPart = (parts[1] || '').padEnd(decimals, '0').slice(0, decimals);
+  const wholePart = parts[0] ?? '0';
+  const fractionalPart = (parts[1] ?? '').padEnd(decimals, '0').slice(0, decimals);
   
   return decimals > 0 ? `${wholePart}.${fractionalPart}` : wholePart;
 }

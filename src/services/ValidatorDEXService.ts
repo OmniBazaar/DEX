@@ -35,14 +35,23 @@ export interface ValidatorDEXConfig extends OmniValidatorClientConfig {
  * Order information from validator
  */
 export interface Order {
+  /** Unique order identifier */
   orderId: string;
+  /** Order type - buy or sell */
   type: 'BUY' | 'SELL';
+  /** Trading pair symbol */
   tokenPair: string;
+  /** Order price per unit */
   price: string;
+  /** Total order amount */
   amount: string;
+  /** Amount that has been filled */
   filled: string;
+  /** Current order status */
   status: 'OPEN' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELLED';
+  /** Address of the order maker */
   maker: string;
+  /** Order creation timestamp */
   timestamp: number;
 }
 
@@ -50,11 +59,17 @@ export interface Order {
  * Order book data from validator
  */
 export interface OrderBook {
+  /** Trading pair symbol */
   tokenPair: string;
+  /** Buy orders sorted by price descending */
   bids: OrderLevel[];
+  /** Sell orders sorted by price ascending */
   asks: OrderLevel[];
+  /** Spread between best bid and ask */
   spread: string;
+  /** Mid-market price */
   midPrice: string;
+  /** Last update timestamp */
   lastUpdate: number;
 }
 
@@ -62,9 +77,13 @@ export interface OrderBook {
  * Single price level in order book
  */
 export interface OrderLevel {
+  /** Price level */
   price: string;
+  /** Total amount at this level */
   amount: string;
+  /** Total value (price × amount) */
   total: string;
+  /** Number of orders at this level */
   orderCount: number;
 }
 
@@ -72,15 +91,25 @@ export interface OrderLevel {
  * Trade execution data
  */
 export interface Trade {
+  /** Unique trade identifier */
   tradeId: string;
+  /** Trading pair symbol */
   tokenPair: string;
+  /** Execution price */
   price: string;
+  /** Trade amount */
   amount: string;
+  /** Trade side from taker perspective */
   side: 'BUY' | 'SELL';
+  /** Maker address */
   maker: string;
+  /** Taker address */
   taker: string;
+  /** Fee paid by maker */
   makerFee: string;
+  /** Fee paid by taker */
   takerFee: string;
+  /** Trade execution timestamp */
   timestamp: number;
 }
 
@@ -88,12 +117,19 @@ export interface Trade {
  * Market data and statistics
  */
 export interface MarketData {
+  /** Trading pair symbol */
   tokenPair: string;
+  /** Last trade price */
   lastPrice: string;
+  /** 24-hour trading volume */
   volume24h: string;
+  /** 24-hour high price */
   high24h: string;
+  /** 24-hour low price */
   low24h: string;
+  /** 24-hour price change */
   priceChange24h: string;
+  /** 24-hour price change percentage */
   priceChangePercent24h: string;
 }
 
@@ -127,10 +163,10 @@ export class ValidatorDEXService {
     this.config = config;
     this.client = createOmniValidatorClient({
       validatorEndpoint: config.validatorEndpoint,
-      ...(config.wsEndpoint ? { wsEndpoint: config.wsEndpoint } : {}),
-      ...(config.apiKey ? { apiKey: config.apiKey } : {}),
-      ...(config.timeout ? { timeout: config.timeout } : {}),
-      ...(config.retryAttempts ? { retryAttempts: config.retryAttempts } : {})
+      ...(config.wsEndpoint !== undefined ? { wsEndpoint: config.wsEndpoint } : {}),
+      ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
+      ...(config.timeout !== undefined ? { timeout: config.timeout } : {}),
+      ...(config.retryAttempts !== undefined ? { retryAttempts: config.retryAttempts } : {})
     });
   }
   
@@ -141,7 +177,7 @@ export class ValidatorDEXService {
   async initialize(): Promise<void> {
     try {
       const health = await this.client.getHealth();
-      if (!health.services.orderBook) {
+      if (health.services.orderBook !== true) {
         throw new Error('Order book service is not available');
       }
       
@@ -162,6 +198,13 @@ export class ValidatorDEXService {
   
   /**
    * Place a new order
+   * @param order - Order parameters
+   * @param order.type - Order type (BUY or SELL)
+   * @param order.tokenPair - Trading pair symbol
+   * @param order.price - Order price per unit
+   * @param order.amount - Total order amount
+   * @param order.maker - Order maker address
+   * @returns Promise that resolves to the created order
    */
   async placeOrder(order: {
     type: 'BUY' | 'SELL';
@@ -208,6 +251,9 @@ export class ValidatorDEXService {
   
   /**
    * Cancel an order
+   * @param orderId - Order ID to cancel
+   * @param maker - Order maker address
+   * @returns Promise that resolves to true if cancellation was successful
    */
   async cancelOrder(orderId: string, maker: string): Promise<boolean> {
     this.ensureInitialized();
@@ -215,7 +261,7 @@ export class ValidatorDEXService {
     try {
       // Get order from cache
       const order = this.orderCache.get(orderId);
-      if (!order) {
+      if (order === undefined) {
         throw new Error('Order not found');
       }
       
@@ -242,36 +288,41 @@ export class ValidatorDEXService {
   
   /**
    * Get order by ID
+   * @param orderId - Order ID to retrieve
+   * @returns Promise that resolves to the order or null if not found
    */
-  async getOrder(orderId: string): Promise<Order | null> {
+  getOrder(orderId: string): Promise<Order | null> {
     this.ensureInitialized();
     
     // Check cache first
     const cachedOrder = this.orderCache.get(orderId);
-    if (cachedOrder) {
-      return cachedOrder;
+    if (cachedOrder !== undefined) {
+      return Promise.resolve(cachedOrder);
     }
     
     // TODO: Fetch from validator when query is available
-    return null;
+    return Promise.resolve(null);
   }
   
   /**
    * Get user's open orders
+   * @param maker - User address to get orders for
+   * @param tokenPair - Optional trading pair filter
+   * @returns Promise that resolves to array of user's open orders
    */
-  async getUserOrders(maker: string, tokenPair?: string): Promise<Order[]> {
+  getUserOrders(maker: string, tokenPair?: string): Promise<Order[]> {
     this.ensureInitialized();
     
     try {
       // Filter from cache for now
       const orders = Array.from(this.orderCache.values()).filter(order => {
         const matchesMaker = order.maker.toLowerCase() === maker.toLowerCase();
-        const matchesPair = !tokenPair || order.tokenPair === tokenPair;
+        const matchesPair = tokenPair === undefined || order.tokenPair === tokenPair;
         const isOpen = order.status === 'OPEN' || order.status === 'PARTIALLY_FILLED';
         return matchesMaker && matchesPair && isOpen;
       });
       
-      return orders.sort((a, b) => b.timestamp - a.timestamp);
+      return Promise.resolve(orders.sort((a, b) => b.timestamp - a.timestamp));
     } catch (error) {
       logger.error('Failed to get user orders:', error);
       throw error;
@@ -280,6 +331,9 @@ export class ValidatorDEXService {
   
   /**
    * Get order book for a trading pair
+   * @param tokenPair - Trading pair symbol
+   * @param depth - Number of price levels to return (default: 20)
+   * @returns Promise that resolves to order book data
    */
   async getOrderBook(tokenPair: string, depth: number = 20): Promise<OrderBook> {
     this.ensureInitialized();
@@ -287,7 +341,7 @@ export class ValidatorDEXService {
     try {
       // Check cache first
       const cached = this.orderBookCache.get(tokenPair);
-      if (cached && (Date.now() - cached.lastUpdate) < 1000) { // 1 second cache
+      if (cached !== undefined && (Date.now() - cached.lastUpdate) < 1000) { // 1 second cache
         return cached;
       }
       
@@ -325,25 +379,30 @@ export class ValidatorDEXService {
   
   /**
    * Get recent trades
+   * @param _tokenPair - Trading pair symbol (currently unused)
+   * @param _limit - Maximum number of trades to return (currently unused)
+   * @returns Promise that resolves to array of recent trades (currently empty)
    */
-  async getRecentTrades(_tokenPair: string, _limit: number = 50): Promise<Trade[]> {
+  getRecentTrades(_tokenPair: string, _limit: number = 50): Promise<Trade[]> {
     this.ensureInitialized();
     
     // TODO: Implement when trade history query is available
     // For now, return empty array
-    return [];
+    return Promise.resolve([]);
   }
   
   /**
    * Get 24h market data
+   * @param tokenPair - Trading pair symbol
+   * @returns Promise that resolves to market data and statistics
    */
-  async getMarketData(tokenPair: string): Promise<MarketData> {
+  getMarketData(tokenPair: string): Promise<MarketData> {
     this.ensureInitialized();
     
     try {
       // TODO: Implement when market data query is available
       // For now, return mock data
-      return {
+      return Promise.resolve({
         tokenPair,
         lastPrice: '0',
         volume24h: '0',
@@ -351,7 +410,7 @@ export class ValidatorDEXService {
         low24h: '0',
         priceChange24h: '0',
         priceChangePercent24h: '0'
-      };
+      });
     } catch (error) {
       logger.error('Failed to get market data:', error);
       throw error;
@@ -360,6 +419,7 @@ export class ValidatorDEXService {
   
   /**
    * Get all trading pairs
+   * @returns Array of supported trading pair symbols
    */
   getTradingPairs(): string[] {
     return this.config.tradingPairs;
@@ -367,6 +427,9 @@ export class ValidatorDEXService {
   
   /**
    * Subscribe to order book updates
+   * @param tokenPair - Trading pair to subscribe to
+   * @param callback - Function to call when order book updates
+   * @returns Unsubscribe function
    */
   subscribeToOrderBook(
     tokenPair: string,
@@ -375,13 +438,15 @@ export class ValidatorDEXService {
     this.ensureInitialized();
     
     // Poll for updates (WebSocket subscription not yet available)
-    const interval = setInterval(async () => {
+    const interval = setInterval(() => {
+      void (async () => {
       try {
         const orderBook = await this.getOrderBook(tokenPair);
         callback(orderBook);
       } catch (error) {
         logger.error('Error in order book subscription:', error);
       }
+      })();
     }, 1000); // Update every second
     
     // Return unsubscribe function
@@ -390,6 +455,9 @@ export class ValidatorDEXService {
   
   /**
    * Subscribe to trades
+   * @param _tokenPair - Trading pair to subscribe to (currently unused)
+   * @param _callback - Function to call on trade events (currently unused)
+   * @returns Unsubscribe function (currently no-op)
    */
   subscribeToTrades(
     _tokenPair: string,
@@ -405,6 +473,9 @@ export class ValidatorDEXService {
   
   /**
    * Calculate trading fees
+   * @param amount - Trade amount to calculate fees for
+   * @param isMaker - Whether this is a maker order
+   * @returns Object with fee amount, rate, and net amount
    */
   calculateFees(amount: string, isMaker: boolean): {
     feeAmount: string;
@@ -425,6 +496,7 @@ export class ValidatorDEXService {
   
   /**
    * Sync order book from validator
+   * @param tokenPair - Trading pair to synchronize
    */
   private async syncOrderBook(tokenPair: string): Promise<void> {
     try {
@@ -436,6 +508,12 @@ export class ValidatorDEXService {
   
   /**
    * Validate order parameters
+   * @param order - Order object to validate
+   * @param order.type - Order type (BUY or SELL)
+   * @param order.pair - Trading pair symbol
+   * @param order.price - Order price
+   * @param order.quantity - Order quantity
+   * @param order.userId - User ID placing the order
    */
   private validateOrder(order: {
     type?: string;
@@ -444,25 +522,25 @@ export class ValidatorDEXService {
     quantity?: string;
     userId?: string;
   }): void {
-    if (!order.type || !['BUY', 'SELL'].includes(order.type)) {
+    if (order.type === undefined || !['BUY', 'SELL'].includes(order.type)) {
       throw new Error('Invalid order type');
     }
     
-    if (!this.config.tradingPairs.includes(order.pair || '')) {
+    if (!this.config.tradingPairs.includes(order.pair ?? '')) {
       throw new Error('Invalid trading pair');
     }
     
-    const price = parseFloat(order.price || '0');
+    const price = parseFloat(order.price ?? '0');
     if (isNaN(price) || price <= 0) {
       throw new Error('Invalid price');
     }
     
-    const amount = parseFloat(order.quantity || '0');
+    const amount = parseFloat(order.quantity ?? '0');
     if (isNaN(amount) || amount <= 0) {
       throw new Error('Invalid amount');
     }
     
-    if (!order.userId || !ethers.isAddress(order.userId)) {
+    if (order.userId === undefined || !ethers.isAddress(order.userId)) {
       throw new Error('Invalid maker address');
     }
   }
@@ -480,9 +558,8 @@ export class ValidatorDEXService {
    * Cleanup resources
    */
   async close(): Promise<void> {
-    if (this.client) {
-      await this.client.close();
-    }
+    // Client is always initialized in constructor, so we can safely call close
+    await this.client.close();
     this.orderCache.clear();
     this.orderBookCache.clear();
     this.isInitialized = false;
@@ -492,14 +569,14 @@ export class ValidatorDEXService {
 
 // Export singleton instance
 export const validatorDEX = new ValidatorDEXService({
-  validatorEndpoint: process.env['VALIDATOR_ENDPOINT'] || 'http://localhost:4000',
-  wsEndpoint: process.env['VALIDATOR_WS_ENDPOINT'] || 'ws://localhost:4000/graphql',
+  validatorEndpoint: process.env['VALIDATOR_ENDPOINT'] ?? 'http://localhost:4000',
+  wsEndpoint: process.env['VALIDATOR_WS_ENDPOINT'] ?? 'ws://localhost:4000/graphql',
   apiKey: process.env['VALIDATOR_API_KEY'],
-  networkId: process.env['NETWORK_ID'] || 'omnibazaar-mainnet',
-  tradingPairs: (process.env['TRADING_PAIRS'] || 'XOM/USDC,XOM/ETH,XOM/BTC').split(','),
+  networkId: process.env['NETWORK_ID'] ?? 'omnibazaar-mainnet',
+  tradingPairs: (process.env['TRADING_PAIRS'] ?? 'XOM/USDC,XOM/ETH,XOM/BTC').split(','),
   feeStructure: {
-    maker: parseFloat(process.env['MAKER_FEE'] || '0.001'), // 0.1%
-    taker: parseFloat(process.env['TAKER_FEE'] || '0.002')  // 0.2%
+    maker: parseFloat(process.env['MAKER_FEE'] ?? '0.001'), // 0.1%
+    taker: parseFloat(process.env['TAKER_FEE'] ?? '0.002')  // 0.2%
   },
   timeout: 30000,
   retryAttempts: 3

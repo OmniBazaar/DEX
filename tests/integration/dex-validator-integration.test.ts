@@ -26,31 +26,44 @@ describe('DEX-Validator Integration Tests', function() {
 
   let authToken: string;
 
-  before(async () => {
+  /**
+   * Setup test authentication before all tests
+   */
+  before((): void => {
     // Setup test authentication
     authToken = TEST_CONFIG.TEST_JWT_TOKEN;
     dexClient.setAuthToken(authToken);
   });
 
-  after(async () => {
+  /**
+   * Cleanup after all tests
+   */
+  after((): void => {
     // Cleanup
     wsManager.disconnect();
     dexClient.clearAuthToken();
   });
 
   describe('REST API Integration', () => {
-    it('should connect to Validator DEX API', async () => {
+    /**
+     * Tests connection to Validator DEX API health endpoint
+     */
+    it('should connect to Validator DEX API', async (): Promise<void> => {
       try {
         const response = await axios.get(`${TEST_CONFIG.DEX_API_URL}/health`);
         expect(response.status).to.equal(200);
         expect(response.data).to.have.property('status', 'healthy');
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.log('Note: Validator service not running. Skipping integration test.');
         this.skip();
       }
     });
 
-    it('should fetch trading pairs from Validator', async () => {
+    /**
+     * Tests fetching available trading pairs from Validator
+     */
+    it('should fetch trading pairs from Validator', async (): Promise<void> => {
       try {
         const pairs = await dexClient.getTradingPairs();
         expect(pairs).to.be.an('array');
@@ -73,7 +86,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should fetch user balances from Validator', async () => {
+    /**
+     * Tests fetching user account balances from Validator
+     */
+    it('should fetch user balances from Validator', async (): Promise<void> => {
       try {
         const balances = await dexClient.getBalances();
         expect(balances).to.be.an('array');
@@ -97,7 +113,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should place order through Validator', async () => {
+    /**
+     * Tests placing a limit order through Validator
+     */
+    it('should place order through Validator', async (): Promise<void> => {
       try {
         const orderRequest = {
           pair: 'ETH/USDC',
@@ -125,7 +144,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should fetch open orders from Validator', async () => {
+    /**
+     * Tests fetching user's open orders from Validator
+     */
+    it('should fetch open orders from Validator', async (): Promise<void> => {
       try {
         const orders = await dexClient.getOpenOrders();
         expect(orders).to.be.an('array');
@@ -149,7 +171,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should cancel order through Validator', async () => {
+    /**
+     * Tests cancelling an order through Validator
+     */
+    it('should cancel order through Validator', async (): Promise<void> => {
       try {
         // First place an order
         const orderRequest = {
@@ -176,7 +201,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should fetch order book from Validator', async () => {
+    /**
+     * Tests fetching order book data from Validator
+     */
+    it('should fetch order book from Validator', async (): Promise<void> => {
       try {
         const orderBook = await dexClient.getOrderBook('ETH/USDC', 20);
         
@@ -211,7 +239,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should get swap quote from Validator', async () => {
+    /**
+     * Tests getting swap quotes from Validator
+     */
+    it('should get swap quote from Validator', async (): Promise<void> => {
       try {
         const quoteRequest = {
           fromToken: 'ETH',
@@ -249,21 +280,32 @@ describe('DEX-Validator Integration Tests', function() {
   });
 
   describe('WebSocket Integration', () => {
-    beforeEach(async function() {
+    /**
+     * Setup WebSocket connection before each test
+     */
+    beforeEach(async function(): Promise<void> {
       try {
         // Test if WebSocket server is available
         await wsManager.connect(authToken);
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.log('Note: WebSocket server not running. Skipping WebSocket tests.');
         this.skip();
       }
     });
 
-    afterEach(() => {
+    /**
+     * Disconnect WebSocket after each test
+     */
+    afterEach((): void => {
       wsManager.disconnect();
     });
 
-    it('should connect to Validator WebSocket', (done) => {
+    /**
+     * Tests WebSocket connection to Validator
+     * @param done - Callback to complete test
+     */
+    it('should connect to Validator WebSocket', (done): void => {
       wsManager.once('connected', () => {
         expect(wsManager.isConnected).to.be.true;
         done();
@@ -274,7 +316,11 @@ describe('DEX-Validator Integration Tests', function() {
       });
     });
 
-    it('should receive real-time ticker updates', (done) => {
+    /**
+     * Tests receiving real-time ticker updates via WebSocket
+     * @param done - Callback to complete test
+     */
+    it('should receive real-time ticker updates', (done): void => {
       let updateCount = 0;
       const targetUpdates = 3;
 
@@ -300,7 +346,11 @@ describe('DEX-Validator Integration Tests', function() {
       }, 10000);
     });
 
-    it('should receive real-time order book updates', (done) => {
+    /**
+     * Tests receiving real-time order book updates via WebSocket
+     * @param done - Callback to complete test
+     */
+    it('should receive real-time order book updates', (done): void => {
       let snapshotReceived = false;
 
       wsManager.subscribeOrderBook('ETH/USDC', (orderBookUpdate) => {
@@ -327,7 +377,11 @@ describe('DEX-Validator Integration Tests', function() {
       }, 10000);
     });
 
-    it('should receive real-time trade updates', (done) => {
+    /**
+     * Tests receiving real-time trade updates via WebSocket
+     * @param done - Callback to complete test
+     */
+    it('should receive real-time trade updates', (done): void => {
       const trades: any[] = [];
 
       wsManager.subscribeTrades('ETH/USDC', (newTrades) => {
@@ -358,7 +412,11 @@ describe('DEX-Validator Integration Tests', function() {
       }, 15000);
     });
 
-    it('should receive order updates for authenticated user', (done) => {
+    /**
+     * Tests receiving order updates for authenticated user via WebSocket
+     * @param done - Callback to complete test
+     */
+    it('should receive order updates for authenticated user', (done): void => {
       wsManager.subscribeOrders((orderUpdate) => {
         expect(orderUpdate).to.have.property('id');
         expect(orderUpdate).to.have.property('status');
@@ -371,18 +429,20 @@ describe('DEX-Validator Integration Tests', function() {
       });
 
       // Place an order to trigger update
-      setTimeout(async () => {
-        try {
-          await dexClient.placeOrder({
-            pair: 'ETH/USDC',
-            side: 'buy',
-            type: 'limit',
-            price: '2300.00',
-            amount: '0.1',
-          });
-        } catch (error) {
-          // Ignore placement errors, we're testing updates
-        }
+      setTimeout((): void => {
+        void (async (): Promise<void> => {
+          try {
+            await dexClient.placeOrder({
+              pair: 'ETH/USDC',
+              side: 'buy',
+              type: 'limit',
+              price: '2300.00',
+              amount: '0.1',
+            });
+          } catch (error) {
+            // Ignore placement errors, we're testing updates
+          }
+        })();
       }, 1000);
 
       // Timeout
@@ -391,7 +451,11 @@ describe('DEX-Validator Integration Tests', function() {
       }, 20000);
     });
 
-    it('should receive balance updates', (done) => {
+    /**
+     * Tests receiving balance updates via WebSocket
+     * @param done - Callback to complete test
+     */
+    it('should receive balance updates', (done): void => {
       wsManager.subscribeBalances((balances) => {
         expect(balances).to.be.an('array');
         
@@ -407,19 +471,21 @@ describe('DEX-Validator Integration Tests', function() {
       });
 
       // Trigger balance update by placing/cancelling order
-      setTimeout(async () => {
-        try {
-          const order = await dexClient.placeOrder({
-            pair: 'ETH/USDC',
-            side: 'buy',
-            type: 'limit',
-            price: '2300.00',
-            amount: '0.1',
-          });
-          await dexClient.cancelOrder(order.id);
-        } catch (error) {
-          // Ignore errors, we're testing balance updates
-        }
+      setTimeout((): void => {
+        void (async (): Promise<void> => {
+          try {
+            const order = await dexClient.placeOrder({
+              pair: 'ETH/USDC',
+              side: 'buy',
+              type: 'limit',
+              price: '2300.00',
+              amount: '0.1',
+            });
+            await dexClient.cancelOrder(order.id);
+          } catch (error) {
+            // Ignore errors, we're testing balance updates
+          }
+        })();
       }, 1000);
 
       // Timeout
@@ -428,7 +494,11 @@ describe('DEX-Validator Integration Tests', function() {
       }, 20000);
     });
 
-    it('should handle WebSocket reconnection', (done) => {
+    /**
+     * Tests WebSocket reconnection handling
+     * @param done - Callback to complete test
+     */
+    it('should handle WebSocket reconnection', (done): void => {
       let disconnectCount = 0;
       let reconnectCount = 0;
 
@@ -454,7 +524,10 @@ describe('DEX-Validator Integration Tests', function() {
   });
 
   describe('Redux Store Integration', () => {
-    it('should update store with trading pairs', async function() {
+    /**
+     * Tests updating Redux store with trading pairs
+     */
+    it('should update store with trading pairs', async function(): Promise<void> {
       try {
         await store.dispatch(fetchTradingPairs());
         
@@ -470,7 +543,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should update store with user balances', async function() {
+    /**
+     * Tests updating Redux store with user balances
+     */
+    it('should update store with user balances', async function(): Promise<void> {
       try {
         await store.dispatch(fetchBalances());
         
@@ -485,7 +561,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should update store with open orders', async function() {
+    /**
+     * Tests updating Redux store with open orders
+     */
+    it('should update store with open orders', async function(): Promise<void> {
       try {
         await store.dispatch(fetchOrders());
         
@@ -500,7 +579,11 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should sync WebSocket updates to store', function(done) {
+    /**
+     * Tests syncing WebSocket updates to Redux store
+     * @param done - Callback to complete test
+     */
+    it('should sync WebSocket updates to store', function(done): void {
       this.timeout(10000);
 
       try {
@@ -538,7 +621,10 @@ describe('DEX-Validator Integration Tests', function() {
   });
 
   describe('Error Scenarios', () => {
-    it('should handle network errors gracefully', async () => {
+    /**
+     * Tests graceful handling of network errors
+     */
+    it('should handle network errors gracefully', async (): Promise<void> => {
       // Temporarily set wrong URL
       const originalUrl = (dexClient as any).client.defaults.baseURL;
       (dexClient as any).client.defaults.baseURL = 'http://localhost:9999/api/dex';
@@ -553,7 +639,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should handle authentication errors', async () => {
+    /**
+     * Tests handling of authentication errors
+     */
+    it('should handle authentication errors', async (): Promise<void> => {
       // Clear auth token
       dexClient.clearAuthToken();
       
@@ -567,7 +656,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should handle invalid order parameters', async () => {
+    /**
+     * Tests handling of invalid order parameters
+     */
+    it('should handle invalid order parameters', async (): Promise<void> => {
       try {
         await dexClient.placeOrder({
           pair: 'INVALID/PAIR',
@@ -584,7 +676,11 @@ describe('DEX-Validator Integration Tests', function() {
   });
 
   describe('Performance Tests', () => {
-    it('should handle high-frequency order book updates', function(done) {
+    /**
+     * Tests handling high-frequency order book updates
+     * @param done - Callback to complete test
+     */
+    it('should handle high-frequency order book updates', function(done): void {
       this.timeout(30000);
       
       let updateCount = 0;
@@ -600,7 +696,9 @@ describe('DEX-Validator Integration Tests', function() {
               const duration = Date.now() - startTime;
               const updatesPerSecond = (updateCount / duration) * 1000;
               
+              // eslint-disable-next-line no-console
               console.log(`Received ${updateCount} updates in ${duration}ms`);
+              // eslint-disable-next-line no-console
               console.log(`Rate: ${updatesPerSecond.toFixed(2)} updates/second`);
               
               expect(updatesPerSecond).to.be.gte(10); // At least 10 updates/second
@@ -617,7 +715,10 @@ describe('DEX-Validator Integration Tests', function() {
       }
     });
 
-    it('should handle concurrent API requests', async function() {
+    /**
+     * Tests handling concurrent API requests
+     */
+    it('should handle concurrent API requests', async function(): Promise<void> {
       const concurrentRequests = 10;
       const requests = [];
       
@@ -634,7 +735,9 @@ describe('DEX-Validator Integration Tests', function() {
         const results = await Promise.all(requests);
         const duration = Date.now() - startTime;
         
+        // eslint-disable-next-line no-console
         console.log(`Completed ${requests.length} requests in ${duration}ms`);
+        // eslint-disable-next-line no-console
         console.log(`Average: ${(duration / requests.length).toFixed(2)}ms per request`);
         
         expect(results).to.have.lengthOf(requests.length);

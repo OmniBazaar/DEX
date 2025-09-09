@@ -69,8 +69,8 @@ describe('PerpetualEngine', () => {
   });
 
   describe('Position Opening', () => {
-    it('should open a long position', async () => {
-      const position = await engine.openPosition({
+    it('should open a long position', () => {
+      const position = engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -85,8 +85,8 @@ describe('PerpetualEngine', () => {
       expect(position.size).to.equal(BigInt(1e17));
     });
 
-    it('should open a short position', async () => {
-      const position = await engine.openPosition({
+    it('should open a short position', () => {
+      const position = engine.openPosition({
         trader: '0x456',
         market: 'ETH-USD',
         side: 'SHORT',
@@ -100,9 +100,9 @@ describe('PerpetualEngine', () => {
       expect(position.status).to.equal('OPEN');
     });
 
-    it('should reject position with excessive leverage', async () => {
+    it('should reject position with excessive leverage', () => {
       try {
-        await engine.openPosition({
+        engine.openPosition({
           trader: '0x789',
           market: 'BTC-USD',
           side: 'LONG',
@@ -115,9 +115,9 @@ describe('PerpetualEngine', () => {
       }
     });
 
-    it('should reject position below minimum size', async () => {
+    it('should reject position below minimum size', () => {
       try {
-        await engine.openPosition({
+        engine.openPosition({
           trader: '0xabc',
           market: 'BTC-USD',
           side: 'LONG',
@@ -130,8 +130,8 @@ describe('PerpetualEngine', () => {
       }
     });
 
-    it('should calculate correct margin requirement', async () => {
-      const position = await engine.openPosition({
+    it('should calculate correct margin requirement', () => {
+      const position = engine.openPosition({
         trader: '0xdef',
         market: 'BTC-USD',
         side: 'LONG',
@@ -150,8 +150,8 @@ describe('PerpetualEngine', () => {
   describe('Position Closing', () => {
     let position: PerpetualPosition;
 
-    beforeEach(async () => {
-      position = await engine.openPosition({
+    beforeEach(() => {
+      position = engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -160,37 +160,37 @@ describe('PerpetualEngine', () => {
       });
     });
 
-    it('should close a full position', async () => {
-      const closed = await engine.closePosition(position.id);
+    it('should close a full position', () => {
+      const closed = engine.closePosition(position.id);
 
       expect(closed.status).to.equal('CLOSED');
       expect(closed.size).to.equal(BigInt(0));
     });
 
-    it('should close a partial position', async () => {
+    it('should close a partial position', () => {
       const partialSize = BigInt(5e16); // 0.05 BTC
-      const closed = await engine.closePosition(position.id, partialSize);
+      const closed = engine.closePosition(position.id, partialSize);
 
       expect(closed.status).to.equal('OPEN');
       expect(closed.size).to.equal(BigInt(5e16)); // Remaining 0.05 BTC
     });
 
-    it('should calculate profit for long position', async () => {
+    it('should calculate profit for long position', () => {
       // Price increases to $55,000
       engine.updateMarkPrice('BTC-USD', BigInt(55000) * BigInt(1e18));
       
-      const closed = await engine.closePosition(position.id);
+      const closed = engine.closePosition(position.id);
       
       // Profit = 0.1 BTC * ($55,000 - $50,000) = $500
       const expectedPnl = BigInt(500) * BigInt(1e18);
       expect(closed.realizedPnl).to.equal(expectedPnl);
     });
 
-    it('should calculate loss for long position', async () => {
+    it('should calculate loss for long position', () => {
       // Price decreases to $45,000
       engine.updateMarkPrice('BTC-USD', BigInt(45000) * BigInt(1e18));
       
-      const closed = await engine.closePosition(position.id);
+      const closed = engine.closePosition(position.id);
       
       // Loss = 0.1 BTC * ($45,000 - $50,000) = -$500
       const expectedPnl = BigInt(-500) * BigInt(1e18);
@@ -201,8 +201,8 @@ describe('PerpetualEngine', () => {
   describe('Leverage Management', () => {
     let position: PerpetualPosition;
 
-    beforeEach(async () => {
-      position = await engine.openPosition({
+    beforeEach(() => {
+      position = engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -211,26 +211,26 @@ describe('PerpetualEngine', () => {
       });
     });
 
-    it('should update leverage', async () => {
-      const updated = await engine.updateLeverage(position.id, 5);
+    it('should update leverage', () => {
+      const updated = engine.updateLeverage(position.id, 5);
 
       expect(updated.leverage).to.equal(5);
       // Margin should double when leverage is halved
       expect(updated.margin).to.equal(position.margin * BigInt(2));
     });
 
-    it('should reject excessive leverage update', async () => {
+    it('should reject excessive leverage update', () => {
       try {
-        await engine.updateLeverage(position.id, 150);
+        engine.updateLeverage(position.id, 150);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect((error as Error).message).to.include('exceeds maximum');
       }
     });
 
-    it('should update liquidation price with leverage change', async () => {
+    it('should update liquidation price with leverage change', () => {
       const originalLiqPrice = position.liquidationPrice;
-      const updated = await engine.updateLeverage(position.id, 5);
+      const updated = engine.updateLeverage(position.id, 5);
 
       // Lower leverage should result in lower liquidation price for long
       expect(updated.liquidationPrice).to.be.lessThan(originalLiqPrice);
@@ -238,8 +238,8 @@ describe('PerpetualEngine', () => {
   });
 
   describe('Liquidation', () => {
-    it('should liquidate long position when price drops', async () => {
-      const position = await engine.openPosition({
+    it('should liquidate long position when price drops', () => {
+      const position = engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -250,14 +250,14 @@ describe('PerpetualEngine', () => {
       // Price drops significantly
       engine.updateMarkPrice('BTC-USD', BigInt(49000) * BigInt(1e18));
       
-      await engine.checkLiquidations();
+      engine.checkLiquidations();
       
       const liquidated = engine.getPosition(position.id);
       expect(liquidated?.status).to.equal('LIQUIDATED');
     });
 
-    it('should liquidate short position when price rises', async () => {
-      const position = await engine.openPosition({
+    it('should liquidate short position when price rises', () => {
+      const position = engine.openPosition({
         trader: '0x456',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -268,16 +268,16 @@ describe('PerpetualEngine', () => {
       // Price rises significantly
       engine.updateMarkPrice('BTC-USD', BigInt(51000) * BigInt(1e18));
       
-      await engine.checkLiquidations();
+      engine.checkLiquidations();
       
       const liquidated = engine.getPosition(position.id);
       expect(liquidated?.status).to.equal('LIQUIDATED');
     });
 
-    it('should add liquidation fee to insurance fund', async () => {
+    it('should add liquidation fee to insurance fund', () => {
       const initialFund = engine.getInsuranceFund();
       
-      await engine.openPosition({
+      engine.openPosition({
         trader: '0x789',
         market: 'BTC-USD',
         side: 'LONG',
@@ -286,7 +286,7 @@ describe('PerpetualEngine', () => {
       });
 
       engine.updateMarkPrice('BTC-USD', BigInt(49000) * BigInt(1e18));
-      await engine.checkLiquidations();
+      engine.checkLiquidations();
       
       const finalFund = engine.getInsuranceFund();
       expect(finalFund).to.be.greaterThan(initialFund);
@@ -294,7 +294,7 @@ describe('PerpetualEngine', () => {
   });
 
   describe('Funding Rates', () => {
-    it('should calculate funding rate based on premium', async () => {
+    it('should calculate funding rate based on premium', () => {
       // Set mark price higher than index (positive premium)
       engine.updateMarkPrice('BTC-USD', BigInt(51000) * BigInt(1e18));
       engine.updateIndexPrice('BTC-USD', BigInt(50000) * BigInt(1e18));
@@ -308,7 +308,7 @@ describe('PerpetualEngine', () => {
     });
 
     it('should apply funding to long positions', async () => {
-      const position = await engine.openPosition({
+      const position = engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -328,7 +328,7 @@ describe('PerpetualEngine', () => {
     });
 
     it('should apply funding to short positions', async () => {
-      const position = await engine.openPosition({
+      const position = engine.openPosition({
         trader: '0x456',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -348,8 +348,8 @@ describe('PerpetualEngine', () => {
   });
 
   describe('PnL Calculations', () => {
-    it('should calculate unrealized PnL for long position', async () => {
-      const position = await engine.openPosition({
+    it('should calculate unrealized PnL for long position', () => {
+      const position = engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -367,8 +367,8 @@ describe('PerpetualEngine', () => {
       expect(updated!.unrealizedPnl).to.equal(expectedPnl);
     });
 
-    it('should calculate unrealized PnL for short position', async () => {
-      const position = await engine.openPosition({
+    it('should calculate unrealized PnL for short position', () => {
+      const position = engine.openPosition({
         trader: '0x456',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -388,11 +388,11 @@ describe('PerpetualEngine', () => {
   });
 
   describe('Open Interest Tracking', () => {
-    it('should track open interest for market', async () => {
+    it('should track open interest for market', () => {
       const initialOI = engine.getOpenInterest('BTC-USD');
       expect(initialOI).to.equal(BigInt(0));
 
-      await engine.openPosition({
+      engine.openPosition({
         trader: '0x123',
         market: 'BTC-USD',
         side: 'LONG',
@@ -403,7 +403,7 @@ describe('PerpetualEngine', () => {
       const afterOpen = engine.getOpenInterest('BTC-USD');
       expect(afterOpen).to.equal(BigInt(1e17));
 
-      await engine.openPosition({
+      engine.openPosition({
         trader: '0x456',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -415,8 +415,8 @@ describe('PerpetualEngine', () => {
       expect(afterSecond).to.equal(BigInt(3e17));
     });
 
-    it('should reduce open interest on position close', async () => {
-      const position = await engine.openPosition({
+    it('should reduce open interest on position close', () => {
+      const position = engine.openPosition({
         trader: '0x789',
         market: 'BTC-USD',
         side: 'LONG',
@@ -425,7 +425,7 @@ describe('PerpetualEngine', () => {
       });
 
       const beforeClose = engine.getOpenInterest('BTC-USD');
-      await engine.closePosition(position.id);
+      engine.closePosition(position.id);
       const afterClose = engine.getOpenInterest('BTC-USD');
 
       expect(afterClose).to.equal(beforeClose - BigInt(1e17));
@@ -439,9 +439,9 @@ describe('PerpetualEngine', () => {
       expect(price).to.equal(BigInt(0));
     });
 
-    it('should reject position for inactive market', async () => {
+    it('should reject position for inactive market', () => {
       try {
-        await engine.openPosition({
+        engine.openPosition({
           trader: '0xabc',
           market: 'UNKNOWN-USD',
           side: 'LONG',
@@ -454,10 +454,10 @@ describe('PerpetualEngine', () => {
       }
     });
 
-    it('should handle multiple positions per trader', async () => {
+    it('should handle multiple positions per trader', () => {
       const trader = '0xmulti';
       
-      const pos1 = await engine.openPosition({
+      const pos1 = engine.openPosition({
         trader,
         market: 'BTC-USD',
         side: 'LONG',
@@ -465,7 +465,7 @@ describe('PerpetualEngine', () => {
         leverage: 10
       });
 
-      const pos2 = await engine.openPosition({
+      const pos2 = engine.openPosition({
         trader,
         market: 'ETH-USD',
         side: 'SHORT',

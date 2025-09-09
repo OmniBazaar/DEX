@@ -1,7 +1,6 @@
 /**
  * Perpetuals Trading Engine Tests
- * 
- * Tests for perpetual futures trading functionality
+ * @file Tests for perpetual futures trading functionality
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
@@ -15,23 +14,32 @@ describe('Perpetuals Trading Engine', () => {
   let integration: PerpetualIntegration;
   let orderBook: DecentralizedOrderBook;
 
-  beforeEach(async () => {
+  /**
+   * Initialize components before each test
+   */
+  beforeEach(async (): Promise<void> => {
     // Initialize real components (no mocks!)
     engine = new PerpetualEngine();
     orderBook = new DecentralizedOrderBook();
     integration = new PerpetualIntegration(engine, orderBook);
 
     await orderBook.initialize();
-    await engine.initialize();
+    engine.initialize();
   });
 
-  afterEach(async () => {
-    await engine.shutdown();
+  /**
+   * Clean up components after each test
+   */
+  afterEach((): void => {
+    engine.shutdown();
   });
 
   describe('Position Management', () => {
-    it('should open a long position', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests opening a long position
+     */
+    it('should open a long position', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -47,8 +55,11 @@ describe('Perpetuals Trading Engine', () => {
       expect(position.entryPrice).toBe(BigInt(50000e18));
     });
 
-    it('should open a short position', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests opening a short position
+     */
+    it('should open a short position', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'ETH-USD',
         side: 'SHORT',
@@ -63,8 +74,11 @@ describe('Perpetuals Trading Engine', () => {
       expect(position.margin).toBeGreaterThan(BigInt(0));
     });
 
-    it('should calculate liquidation price correctly', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests liquidation price calculation
+     */
+    it('should calculate liquidation price correctly', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -85,7 +99,10 @@ describe('Perpetuals Trading Engine', () => {
       expect(liquidationDiff).toBeLessThan(tolerance);
     });
 
-    it('should reject invalid leverage', async () => {
+    /**
+     * Tests rejection of invalid leverage values
+     */
+    it('should reject invalid leverage', async (): Promise<void> => {
       await expect(engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
@@ -96,8 +113,11 @@ describe('Perpetuals Trading Engine', () => {
       })).rejects.toThrow('exceeds maximum');
     });
 
-    it('should update position on price change', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests position updates on price changes
+     */
+    it('should update position on price change', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -107,14 +127,17 @@ describe('Perpetuals Trading Engine', () => {
       });
 
       // Update mark price
-      await engine.updateMarkPrice('BTC-USD', BigInt(51000e18));
+      engine.updateMarkPrice('BTC-USD', BigInt(51000e18));
 
       const updatedPosition = engine.getPosition(position.id);
       expect(updatedPosition?.unrealizedPnl).toBeGreaterThan(BigInt(0));
     });
 
-    it('should close position partially', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests partial position closing
+     */
+    it('should close position partially', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -123,15 +146,18 @@ describe('Perpetuals Trading Engine', () => {
         price: BigInt(50000e18)
       });
 
-      await engine.closePosition(position.id, BigInt(1e18)); // Close 1 BTC
+      engine.closePosition(position.id, BigInt(1e18)); // Close 1 BTC
 
       const updatedPosition = engine.getPosition(position.id);
       expect(updatedPosition?.size).toBe(BigInt(1e18));
       expect(updatedPosition?.status).toBe('OPEN');
     });
 
-    it('should close position fully', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests full position closing
+     */
+    it('should close position fully', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -140,7 +166,7 @@ describe('Perpetuals Trading Engine', () => {
         price: BigInt(50000e18)
       });
 
-      await engine.closePosition(position.id);
+      engine.closePosition(position.id);
 
       const closedPosition = engine.getPosition(position.id);
       expect(closedPosition?.status).toBe('CLOSED');
@@ -148,10 +174,13 @@ describe('Perpetuals Trading Engine', () => {
   });
 
   describe('Funding Rate', () => {
-    it('should calculate funding rate based on price divergence', async () => {
+    /**
+     * Tests funding rate calculation based on price divergence
+     */
+    it('should calculate funding rate based on price divergence', (): void => {
       // Set different mark and index prices
-      await engine.updateMarkPrice('BTC-USD', BigInt(50500e18));
-      await engine.updateIndexPrice('BTC-USD', BigInt(50000e18));
+      engine.updateMarkPrice('BTC-USD', BigInt(50500e18));
+      engine.updateIndexPrice('BTC-USD', BigInt(50000e18));
 
       const fundingRate = engine.calculateFundingRate('BTC-USD');
       
@@ -159,8 +188,11 @@ describe('Perpetuals Trading Engine', () => {
       expect(fundingRate).toBeGreaterThan(0);
     });
 
-    it('should apply funding payments to positions', async () => {
-      const longPosition = await engine.openPosition({
+    /**
+     * Tests application of funding payments to positions
+     */
+    it('should apply funding payments to positions', (): void => {
+      const longPosition = engine.openPosition({
         trader: '0x1111111111111111111111111111111111111111',
         market: 'BTC-USD',
         side: 'LONG',
@@ -169,7 +201,7 @@ describe('Perpetuals Trading Engine', () => {
         price: BigInt(50000e18)
       });
 
-      const shortPosition = await engine.openPosition({
+      const shortPosition = engine.openPosition({
         trader: '0x2222222222222222222222222222222222222222',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -179,11 +211,11 @@ describe('Perpetuals Trading Engine', () => {
       });
 
       // Set mark price above index (positive funding)
-      await engine.updateMarkPrice('BTC-USD', BigInt(50500e18));
-      await engine.updateIndexPrice('BTC-USD', BigInt(50000e18));
+      engine.updateMarkPrice('BTC-USD', BigInt(50500e18));
+      engine.updateIndexPrice('BTC-USD', BigInt(50000e18));
 
       // Apply funding
-      await engine.applyFunding('BTC-USD');
+      engine.applyFunding('BTC-USD');
 
       const updatedLong = engine.getPosition(longPosition.id);
       const updatedShort = engine.getPosition(shortPosition.id);
@@ -196,8 +228,11 @@ describe('Perpetuals Trading Engine', () => {
   });
 
   describe('Liquidation Engine', () => {
-    it('should liquidate undercollateralized position', async () => {
-      const position = await engine.openPosition({
+    /**
+     * Tests liquidation of undercollateralized positions
+     */
+    it('should liquidate undercollateralized position', (): void => {
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -207,20 +242,23 @@ describe('Perpetuals Trading Engine', () => {
       });
 
       // Move price against position
-      await engine.updateMarkPrice('BTC-USD', BigInt(49000e18));
+      engine.updateMarkPrice('BTC-USD', BigInt(49000e18));
 
       // Check liquidations
-      const liquidated = await engine.checkLiquidations('BTC-USD');
+      const liquidated = engine.checkLiquidations('BTC-USD');
       expect(liquidated).toContain(position.id);
 
       const liquidatedPosition = engine.getPosition(position.id);
       expect(liquidatedPosition?.status).toBe('LIQUIDATED');
     });
 
-    it('should add remaining collateral to insurance fund', async () => {
+    /**
+     * Tests adding remaining collateral to insurance fund
+     */
+    it('should add remaining collateral to insurance fund', (): void => {
       const initialInsurance = engine.getInsuranceFund();
 
-      const position = await engine.openPosition({
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'SHORT',
@@ -230,8 +268,8 @@ describe('Perpetuals Trading Engine', () => {
       });
 
       // Move price against position
-      await engine.updateMarkPrice('BTC-USD', BigInt(52000e18));
-      await engine.checkLiquidations('BTC-USD');
+      engine.updateMarkPrice('BTC-USD', BigInt(52000e18));
+      engine.checkLiquidations('BTC-USD');
 
       const finalInsurance = engine.getInsuranceFund();
       expect(finalInsurance).toBeGreaterThan(initialInsurance);
@@ -239,8 +277,11 @@ describe('Perpetuals Trading Engine', () => {
   });
 
   describe('Integration with Order Book', () => {
-    it('should create order book entry for perpetual order', async () => {
-      const result = await integration.processPerpetualOrder({
+    /**
+     * Tests creating order book entries for perpetual orders
+     */
+    it('should create order book entry for perpetual order', (): void => {
+      const result = integration.processPerpetualOrder({
         userId: '0x1234567890123456789012345678901234567890',
         contract: 'BTC-USD',
         type: 'LIMIT',
@@ -256,7 +297,10 @@ describe('Perpetuals Trading Engine', () => {
       expect(result.order).toBeDefined();
     });
 
-    it('should handle market statistics correctly', () => {
+    /**
+     * Tests handling of market statistics
+     */
+    it('should handle market statistics correctly', (): void => {
       const markets = integration.getMarkets();
       expect(markets).toBeInstanceOf(Array);
       expect(markets.length).toBeGreaterThan(0);
@@ -266,10 +310,13 @@ describe('Perpetuals Trading Engine', () => {
       expect(btcMarket?.maxLeverage).toBe(100);
     });
 
-    it('should track open interest', async () => {
+    /**
+     * Tests tracking of open interest
+     */
+    it('should track open interest', (): void => {
       const initialOI = integration.getOpenInterest('BTC-USD');
 
-      await integration.processPerpetualOrder({
+      integration.processPerpetualOrder({
         userId: '0x1234567890123456789012345678901234567890',
         contract: 'BTC-USD',
         type: 'MARKET',
@@ -285,7 +332,10 @@ describe('Perpetuals Trading Engine', () => {
   });
 
   describe('Risk Management', () => {
-    it('should enforce maximum position size', async () => {
+    /**
+     * Tests enforcement of maximum position size
+     */
+    it('should enforce maximum position size', async (): Promise<void> => {
       await expect(engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
@@ -296,8 +346,11 @@ describe('Perpetuals Trading Engine', () => {
       })).rejects.toThrow('Insufficient liquidity');
     });
 
-    it('should prevent duplicate positions in same direction', async () => {
-      await engine.openPosition({
+    /**
+     * Tests prevention of duplicate positions in same direction
+     */
+    it('should prevent duplicate positions in same direction', (): void => {
+      engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -307,7 +360,7 @@ describe('Perpetuals Trading Engine', () => {
       });
 
       // Should aggregate into existing position instead of creating new
-      const secondPosition = await engine.openPosition({
+      const secondPosition = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -324,14 +377,17 @@ describe('Perpetuals Trading Engine', () => {
   });
 
   describe('Event Emissions', () => {
-    it('should emit events on position lifecycle', async () => {
+    /**
+     * Tests event emission during position lifecycle
+     */
+    it('should emit events on position lifecycle', (): void => {
       const events: any[] = [];
       
       engine.on('positionOpened', (data) => events.push({ type: 'opened', data }));
       engine.on('positionClosed', (data) => events.push({ type: 'closed', data }));
       engine.on('positionLiquidated', (data) => events.push({ type: 'liquidated', data }));
 
-      const position = await engine.openPosition({
+      const position = engine.openPosition({
         trader: '0x1234567890123456789012345678901234567890',
         market: 'BTC-USD',
         side: 'LONG',
@@ -340,7 +396,7 @@ describe('Perpetuals Trading Engine', () => {
         price: BigInt(50000e18)
       });
 
-      await engine.closePosition(position.id);
+      engine.closePosition(position.id);
 
       expect(events).toHaveLength(2);
       expect(events[0].type).toBe('opened');

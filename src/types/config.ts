@@ -233,11 +233,13 @@ export interface Position {
   side: 'BUY' | 'SELL' | 'LONG' | 'SHORT';
   /** Position size/quantity */
   size?: string;
+  /** Position quantity (alias for size) */
   quantity?: string;
   /** Average entry price */
   entryPrice: string;
   /** Current mark price */
   currentPrice?: string;
+  /** Market price (alias for currentPrice) */
   markPrice?: string;
   /** Position leverage */
   leverage?: number;
@@ -245,6 +247,7 @@ export interface Position {
   margin: string;
   /** Unrealized profit/loss */
   unrealizedPnl?: string;
+  /** Unrealized P&L (alias for unrealizedPnl) */
   unrealizedPnL?: string;
   /** Realized profit/loss */
   realizedPnl?: string;

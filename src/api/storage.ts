@@ -132,13 +132,15 @@ export function createStorageRoutes(storage: IPFSStorageNetwork): Router {
    */
   router.post('/upload',
     upload.single('file'),
-    async (req: Request, res: Response) => {
-      try {
-        if (!req.file) {
-          return res.status(400).json({
-            error: 'No file provided'
-          });
-        }
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          if (req.file === null || req.file === undefined) {
+            res.status(400).json({
+              error: 'No file provided'
+            });
+            return;
+          }
 
         const userId = req.headers['x-user-id'] as string;
         const result = await storage.storeData(
@@ -148,28 +150,34 @@ export function createStorageRoutes(storage: IPFSStorageNetwork): Router {
           userId
         );
 
-        if (result.success) {
-          return res.status(201).json({
-            success: true,
-            hash: result.hash,
-            size: result.size,
-            filename: req.file.originalname,
-            contentType: req.file.mimetype
-          });
-        } else {
-          return res.status(500).json({
-            error: 'Failed to store file',
-            message: result.error
+          if (result.success) {
+            res.status(201).json({
+              success: true,
+              hash: result.hash,
+              size: result.size,
+              filename: req.file.originalname,
+              contentType: req.file.mimetype
+            });
+          } else {
+            res.status(500).json({
+              error: 'Failed to store file',
+              message: result.error
+            });
+          }
+        } catch (error) {
+          logger.error('Error uploading file:', error);
+          res.status(500).json({
+            error: 'Failed to upload file',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error uploading file:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to upload file',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -179,36 +187,52 @@ export function createStorageRoutes(storage: IPFSStorageNetwork): Router {
    */
   router.get('/file/:hash',
     [param('hash').isString().notEmpty()],
-    async (req: Request, res: Response) => {
-      try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(400).json({
-            error: 'Validation failed',
-            details: errors.array()
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const errors = validationResult(req);
+          if (!errors.isEmpty()) {
+            res.status(400).json({
+              error: 'Validation failed',
+              details: errors.array()
+            });
+            return;
+          }
+
+          const { hash } = req.params;
+          if (hash === undefined || hash === '') {
+            res.status(400).json({
+              error: 'Hash parameter is required'
+            });
+            return;
+          }
+          
+          const result = await storage.retrieveData(hash);
+
+          if (result.success && result.data !== null && result.data !== undefined) {
+            res.set('Content-Type', result.contentType ?? 'application/octet-stream');
+            res.send(result.data);
+          } else {
+            res.status(404).json({
+              error: 'File not found',
+              message: result.error
+            });
+          }
+
+        } catch (error) {
+          logger.error('Error retrieving file:', error);
+          res.status(500).json({
+            error: 'Failed to retrieve file',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        const { hash } = req.params;
-        const result = await storage.retrieveData(hash || '');
-
-        if (result.success && result.data) {
-          res.set('Content-Type', result.contentType || 'application/octet-stream');
-          return res.send(result.data);
-        } else {
-          return res.status(404).json({
-            error: 'File not found',
-            message: result.error
-          });
-        }
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error retrieving file:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to retrieve file',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -218,26 +242,41 @@ export function createStorageRoutes(storage: IPFSStorageNetwork): Router {
    */
   router.get('/metadata/:hash',
     [param('hash').isString().notEmpty()],
-    async (req: Request, res: Response) => {
-      try {
-        const { hash } = req.params;
-        const metadata = await storage.getFileMetadata(hash || '');
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { hash } = req.params;
+          if (hash === undefined || hash === '') {
+            res.status(400).json({
+              error: 'Hash parameter is required'
+            });
+            return;
+          }
+          
+          const metadata = await storage.getFileMetadata(hash);
 
-        if (metadata) {
-          return res.json(metadata);
-        } else {
-          return res.status(404).json({
-            error: 'File metadata not found'
+          if (metadata !== null && metadata !== undefined) {
+            res.json(metadata);
+          } else {
+            res.status(404).json({
+              error: 'File metadata not found'
+            });
+          }
+
+        } catch (error) {
+          logger.error('Error getting file metadata:', error);
+          res.status(500).json({
+            error: 'Failed to get file metadata',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error getting file metadata:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get file metadata',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -245,17 +284,25 @@ export function createStorageRoutes(storage: IPFSStorageNetwork): Router {
    * Get storage health status
    * GET /api/v1/storage/health
    */
-  router.get('/health', async (_req: Request, res: Response) => {
-    try {
-      const health = await storage.getHealthStatus();
-      return res.json(health);
-    } catch (error) {
+  router.get('/health', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const health = await storage.getHealthStatus();
+        res.json(health);
+      } catch (error) {
+        logger.error('Error getting storage health:', error);
+        res.status(500).json({
+          error: 'Failed to get storage health',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting storage health:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get storage health',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   return router;

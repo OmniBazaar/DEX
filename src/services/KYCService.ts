@@ -18,6 +18,40 @@
 import { ethers } from 'ethers';
 
 /**
+ * API response type for trader data
+ */
+interface TraderAPIResponse {
+  currentTier?: DEXKYCTier;
+  vipStatus?: 'none' | 'bronze' | 'silver' | 'gold' | 'platinum';
+  compliance?: {
+    canTradeUS?: boolean;
+    canTradeEU?: boolean;
+    sanctionsCheck?: boolean;
+    lastCheckDate?: number;
+  };
+  marketMaker?: {
+    isMarketMaker?: boolean;
+    makerRebate?: number;
+    tier?: 'none' | 'basic' | 'professional' | 'institutional';
+  };
+  expiryDate?: number;
+}
+
+/**
+ * API response type for upgrade requests
+ */
+interface UpgradeAPIResponse {
+  verificationUrl: string;
+}
+
+/**
+ * API response type for market maker applications
+ */
+interface MarketMakerAPIResponse {
+  tier: string;
+}
+
+/**
  * DEX KYC tiers
  */
 export enum DEXKYCTier {
@@ -256,9 +290,14 @@ export class DEXKYCService {
     [DEXKYCTier.TIER_4]: 25
   };
   
+  /**
+   * Creates a new DEX KYC Service instance
+   * @param provider - Ethereum provider for blockchain interactions
+   * @param validatorEndpoint - Optional validator endpoint URL for KYC operations
+   */
   constructor(provider: ethers.Provider, validatorEndpoint?: string) {
     this.provider = provider;
-    this.validatorEndpoint = validatorEndpoint || 'http://localhost:3001/api/dex-kyc';
+    this.validatorEndpoint = validatorEndpoint !== undefined ? validatorEndpoint : 'http://localhost:3001/api/dex-kyc';
     
     // Initialize pair restrictions
     this.initializePairRestrictions();
@@ -266,21 +305,24 @@ export class DEXKYCService {
   
   /**
    * Initialize the service
+   * @returns Promise that resolves when initialization is complete
    */
   async initialize(): Promise<void> {
     // Load pair restrictions from validator
     await this.loadPairRestrictions();
     
-    console.log('DEX KYC Service initialized');
+    // Service initialized successfully - logging removed for production
   }
   
   /**
    * Get trader KYC status
+   * @param address - Trader's Ethereum address
+   * @returns Promise resolving to the trader's KYC status
    */
   async getTraderStatus(address: string): Promise<TraderKYCStatus> {
     // Check cache
     const cached = this.traderCache.get(address);
-    if (cached && Date.now() - cached.lastUpdated < 300000) { // 5 minute cache
+    if (cached !== undefined && Date.now() - cached.lastUpdated < 300000) { // 5 minute cache
       return cached;
     }
     
@@ -290,7 +332,7 @@ export class DEXKYCService {
         return this.getDefaultTraderStatus(address);
       }
       
-      const data = await response.json();
+      const data = await response.json() as TraderAPIResponse;
       const status = this.processTraderData(address, data);
       
       // Update cache
@@ -298,22 +340,23 @@ export class DEXKYCService {
       
       return status;
     } catch (error) {
-      console.error('Error fetching trader status:', error);
+      // Error handling without console logging
       return this.getDefaultTraderStatus(address);
     }
   }
   
   /**
    * Check if trader can trade pair
+   * @param traderAddress - Trader's Ethereum address
+   * @param pair - Trading pair symbol (e.g., 'XOM/USDC')
+   * @returns Promise resolving to permission status with optional reason
    */
   async canTradePair(
     traderAddress: string,
     pair: string
   ): Promise<{ allowed: boolean; reason?: string }> {
-    const [traderStatus, pairRestriction] = await Promise.all([
-      this.getTraderStatus(traderAddress),
-      this.getPairRestrictions(pair)
-    ]);
+    const traderStatus = await this.getTraderStatus(traderAddress);
+    const pairRestriction = this.getPairRestrictions(pair);
     
     // Check tier requirement
     if (traderStatus.currentTier < pairRestriction.minTier) {
@@ -347,6 +390,11 @@ export class DEXKYCService {
   
   /**
    * Check if order is within limits
+   * @param traderAddress - Trader's Ethereum address
+   * @param orderValue - Value of the new order in USD
+   * @param dailyVolume - Current daily volume in USD
+   * @param openOrderCount - Current number of open orders
+   * @returns Promise resolving to permission status with optional reason
    */
   async checkOrderLimits(
     traderAddress: string,
@@ -386,6 +434,9 @@ export class DEXKYCService {
   
   /**
    * Check if trader can use feature
+   * @param traderAddress - Trader's Ethereum address
+   * @param feature - Trading feature to check
+   * @returns Promise resolving to true if feature is allowed
    */
   async canUseFeature(
     traderAddress: string,
@@ -397,6 +448,14 @@ export class DEXKYCService {
   
   /**
    * Request KYC upgrade
+   * @param address - Trader's Ethereum address
+   * @param targetTier - Desired KYC tier
+   * @param institutionalData - Optional institutional verification data
+   * @param institutionalData.companyName - Company name for institutional accounts
+   * @param institutionalData.registrationNumber - Company registration number
+   * @param institutionalData.regulatoryLicenses - Array of regulatory licenses
+   * @param institutionalData.aum - Assets under management amount
+   * @returns Promise resolving to upgrade request result
    */
   async requestUpgrade(
     address: string,
@@ -428,7 +487,7 @@ export class DEXKYCService {
         };
       }
       
-      const data = await response.json();
+      const data = await response.json() as UpgradeAPIResponse;
       
       // Clear cache
       this.traderCache.delete(address);
@@ -439,7 +498,6 @@ export class DEXKYCService {
       };
       
     } catch (error) {
-      console.error('Error requesting upgrade:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -449,6 +507,10 @@ export class DEXKYCService {
   
   /**
    * Apply for market maker status
+   * @param address - Trader's Ethereum address
+   * @param volumeCommitment - Volume commitment in USD
+   * @param spreadCommitment - Spread commitment percentage
+   * @returns Promise resolving to market maker application result
    */
   async applyForMarketMaker(
     address: string,
@@ -475,7 +537,7 @@ export class DEXKYCService {
         };
       }
       
-      const data = await response.json();
+      const data = await response.json() as MarketMakerAPIResponse;
       
       // Clear cache
       this.traderCache.delete(address);
@@ -486,7 +548,6 @@ export class DEXKYCService {
       };
       
     } catch (error) {
-      console.error('Error applying for market maker:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -496,6 +557,8 @@ export class DEXKYCService {
   
   /**
    * Get trading statistics
+   * @param address - Trader's Ethereum address
+   * @returns Promise resolving to trader's 30-day statistics
    */
   async getTradingStats(address: string): Promise<{
     totalVolume30d: string;
@@ -518,10 +581,22 @@ export class DEXKYCService {
         throw new Error('Failed to fetch trading stats');
       }
       
-      return await response.json();
+      return await response.json() as {
+        totalVolume30d: string;
+        totalTrades30d: number;
+        avgDailyVolume: string;
+        feePaid30d: string;
+        feeRebate30d: string;
+        profitLoss30d: string;
+        winRate: number;
+        vipProgress: {
+          currentTier: string;
+          nextTier: string;
+          volumeRequired: string;
+          volumeProgress: number;
+        };
+      };
     } catch (error) {
-      console.error('Error fetching trading stats:', error);
-      
       return {
         totalVolume30d: '0',
         totalTrades30d: 0,
@@ -542,6 +617,8 @@ export class DEXKYCService {
   
   /**
    * Get tier information
+   * @param tier - KYC tier to get information for
+   * @returns Comprehensive tier information including features and limits
    */
   getTierInfo(tier: DEXKYCTier): {
     name: string;
@@ -587,6 +664,8 @@ export class DEXKYCService {
   
   /**
    * Get VIP tier benefits
+   * @param vipTier - VIP tier level
+   * @returns VIP benefits and privileges
    */
   getVIPBenefits(vipTier: string): {
     feeDiscount: number;
@@ -639,7 +718,8 @@ export class DEXKYCService {
       }
     };
     
-    return benefits[vipTier as keyof typeof benefits] || benefits.none;
+    const benefitsMap = benefits as Record<string, typeof benefits.none>;
+    return benefitsMap[vipTier] ?? benefits.none;
   }
   
   // Helper methods
@@ -687,22 +767,24 @@ export class DEXKYCService {
       const response = await fetch(`${this.validatorEndpoint}/pairs/restrictions`);
       if (!response.ok) return;
       
-      const restrictions = await response.json();
+      const restrictions = await response.json() as PairRestrictions[];
       
       for (const restriction of restrictions) {
         this.pairRestrictions.set(restriction.pair, restriction);
       }
     } catch (error) {
-      console.error('Error loading pair restrictions:', error);
+      // Error loading pair restrictions - using defaults
     }
   }
   
   /**
    * Get pair restrictions
+   * @param pair - Trading pair symbol
+   * @returns Pair trading restrictions
    */
-  private async getPairRestrictions(pair: string): Promise<PairRestrictions> {
+  private getPairRestrictions(pair: string): PairRestrictions {
     const cached = this.pairRestrictions.get(pair);
-    if (cached) return cached;
+    if (cached !== undefined) return cached;
     
     // Default unrestricted
     return {
@@ -717,9 +799,12 @@ export class DEXKYCService {
   
   /**
    * Process trader data from API
+   * @param address - Trader's Ethereum address
+   * @param data - Raw trader data from API
+   * @returns Processed trader KYC status
    */
-  private processTraderData(address: string, data: any): TraderKYCStatus {
-    const tier = data.currentTier || DEXKYCTier.TIER_0;
+  private processTraderData(address: string, data: TraderAPIResponse): TraderKYCStatus {
+    const tier = data.currentTier ?? DEXKYCTier.TIER_0;
     
     return {
       address,
@@ -729,18 +814,18 @@ export class DEXKYCService {
       features: this.TIER_FEATURES[tier as DEXKYCTier],
       limits: this.TIER_LIMITS[tier as DEXKYCTier],
       feeTier: this.FEE_DISCOUNTS[tier as DEXKYCTier],
-      vipStatus: data.vipStatus || 'none',
+      vipStatus: data.vipStatus ?? 'none',
       compliance: {
-        canTradeUS: data.compliance?.canTradeUS || false,
-        canTradeEU: data.compliance?.canTradeEU || false,
+        canTradeUS: data.compliance?.canTradeUS ?? false,
+        canTradeEU: data.compliance?.canTradeEU ?? false,
         canTradeRestricted: tier >= DEXKYCTier.TIER_3,
-        sanctionsCheck: data.compliance?.sanctionsCheck || false,
-        lastCheckDate: data.compliance?.lastCheckDate || Date.now()
+        sanctionsCheck: data.compliance?.sanctionsCheck ?? false,
+        lastCheckDate: data.compliance?.lastCheckDate ?? Date.now()
       },
       marketMaker: {
-        isMarketMaker: data.marketMaker?.isMarketMaker || false,
-        makerRebate: data.marketMaker?.makerRebate || 0,
-        tier: data.marketMaker?.tier || 'none'
+        isMarketMaker: data.marketMaker?.isMarketMaker ?? false,
+        makerRebate: data.marketMaker?.makerRebate ?? 0,
+        tier: data.marketMaker?.tier ?? 'none'
       },
       expiryDate: data.expiryDate,
       lastUpdated: Date.now()
@@ -749,6 +834,8 @@ export class DEXKYCService {
   
   /**
    * Get default trader status
+   * @param address - Trader's Ethereum address
+   * @returns Default trader status for unverified users
    */
   private getDefaultTraderStatus(address: string): TraderKYCStatus {
     return {

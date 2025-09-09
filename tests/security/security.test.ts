@@ -3,6 +3,7 @@ import { ethers } from 'hardhat';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
+import WebSocket from 'ws';
 import { DEXRegistry, OrderBook, FeeCollector, MockERC20 } from '../../typechain-types';
 
 describe('DEX Security Tests', function() {
@@ -19,7 +20,10 @@ describe('DEX Security Tests', function() {
 
   const API_URL = process.env.TEST_DEX_API_URL || 'http://localhost:3001/api/dex';
 
-  beforeEach(async () => {
+  /**
+   * Set up test environment before each test
+   */
+  beforeEach(async (): Promise<void> => {
     [owner, attacker, user1, user2] = await ethers.getSigners();
     
     // Deploy contracts
@@ -55,7 +59,10 @@ describe('DEX Security Tests', function() {
 
   describe('Smart Contract Security', () => {
     describe('Reentrancy Protection', () => {
-      it('should prevent reentrancy in order placement', async () => {
+      /**
+       * Tests reentrancy protection in order placement
+       */
+    it('should prevent reentrancy in order placement', async (): Promise<void> => {
         // Deploy malicious token that attempts reentrancy
         const ReentrancyAttacker = await ethers.getContractFactory('ReentrancyAttacker');
         const attackContract = await ReentrancyAttacker.deploy(orderBook.address);
@@ -69,7 +76,10 @@ describe('DEX Security Tests', function() {
         ).to.be.revertedWith('ReentrancyGuard: reentrant call');
       });
 
-      it('should prevent reentrancy in order cancellation', async () => {
+      /**
+       * Tests reentrancy protection in order cancellation
+       */
+    it('should prevent reentrancy in order cancellation', async (): Promise<void> => {
         const price = ethers.utils.parseEther('2000');
         const amount = ethers.utils.parseEther('1');
         
@@ -90,7 +100,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Integer Overflow/Underflow', () => {
-      it('should handle maximum uint256 values safely', async () => {
+      /**
+       * Tests safe handling of maximum uint256 values
+       */
+    it('should handle maximum uint256 values safely', async (): Promise<void> => {
         const maxUint = ethers.constants.MaxUint256;
         
         // Attempt to place order with max values
@@ -99,7 +112,10 @@ describe('DEX Security Tests', function() {
         ).to.be.revertedWith('SafeMath: multiplication overflow');
       });
 
-      it('should prevent underflow in balance calculations', async () => {
+      /**
+       * Tests prevention of underflow in balance calculations
+       */
+    it('should prevent underflow in balance calculations', async (): Promise<void> => {
         const price = ethers.utils.parseEther('2000');
         const amount = ethers.utils.parseEther('1');
         
@@ -114,7 +130,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Access Control', () => {
-      it('should restrict admin functions to owner', async () => {
+      /**
+       * Tests restriction of admin functions to owner
+       */
+    it('should restrict admin functions to owner', async (): Promise<void> => {
         await expect(
           dexRegistry.connect(attacker).setMakerFee(100)
         ).to.be.revertedWith('Ownable: caller is not the owner');
@@ -124,13 +143,19 @@ describe('DEX Security Tests', function() {
         ).to.be.revertedWith('Ownable: caller is not the owner');
       });
 
-      it('should restrict operator functions', async () => {
+      /**
+       * Tests restriction of operator functions
+       */
+    it('should restrict operator functions', async (): Promise<void> => {
         await expect(
           dexRegistry.connect(attacker).registerTradingPair(tokenA.address, tokenB.address)
         ).to.be.revertedWith('Not authorized');
       });
 
-      it('should prevent unauthorized order cancellation', async () => {
+      /**
+       * Tests prevention of unauthorized order cancellation
+       */
+    it('should prevent unauthorized order cancellation', async (): Promise<void> => {
         const price = ethers.utils.parseEther('2000');
         const amount = ethers.utils.parseEther('1');
         
@@ -146,7 +171,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Front-Running Protection', () => {
-      it('should use commit-reveal for sensitive operations', async () => {
+      /**
+       * Tests commit-reveal scheme for sensitive operations
+       */
+    it('should use commit-reveal for sensitive operations', async (): Promise<void> => {
         // Test if order placement uses proper ordering
         const price = ethers.utils.parseEther('2000');
         const amount = ethers.utils.parseEther('1');
@@ -170,7 +198,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Price Manipulation', () => {
-      it('should prevent extreme price deviations', async () => {
+      /**
+       * Tests prevention of extreme price deviations
+       */
+    it('should prevent extreme price deviations', async (): Promise<void> => {
         const normalPrice = ethers.utils.parseEther('2000');
         const manipulatedPrice = ethers.utils.parseEther('1'); // 99.95% deviation
         
@@ -189,7 +220,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Flash Loan Attack Prevention', () => {
-      it('should prevent flash loan attacks on liquidity', async () => {
+      /**
+       * Tests prevention of flash loan attacks
+       */
+    it('should prevent flash loan attacks on liquidity', async (): Promise<void> => {
         const FlashLoanAttacker = await ethers.getContractFactory('FlashLoanAttacker');
         const flashAttacker = await FlashLoanAttacker.deploy(orderBook.address);
         
@@ -203,7 +237,10 @@ describe('DEX Security Tests', function() {
 
   describe('API Security', () => {
     describe('Authentication', () => {
-      it('should reject requests without JWT token', async () => {
+      /**
+       * Tests rejection of requests without JWT token
+       */
+    it('should reject requests without JWT token', async (): Promise<void> => {
         try {
           await axios.get(`${API_URL}/account/balances`);
           expect.fail('Should have thrown 401 error');
@@ -213,7 +250,10 @@ describe('DEX Security Tests', function() {
         }
       });
 
-      it('should reject requests with invalid JWT token', async () => {
+      /**
+       * Tests rejection of requests with invalid JWT token
+       */
+    it('should reject requests with invalid JWT token', async (): Promise<void> => {
         try {
           await axios.get(`${API_URL}/account/balances`, {
             headers: {
@@ -227,7 +267,10 @@ describe('DEX Security Tests', function() {
         }
       });
 
-      it('should reject expired JWT tokens', async () => {
+      /**
+       * Tests rejection of expired JWT tokens
+       */
+    it('should reject expired JWT tokens', async (): Promise<void> => {
         // Create expired token
         const expiredToken = jwt.sign(
           { userId: 'test123', exp: Math.floor(Date.now() / 1000) - 3600 },
@@ -249,7 +292,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Input Validation', () => {
-      it('should validate order parameters', async () => {
+      /**
+       * Tests validation of order parameters
+       */
+    it('should validate order parameters', async (): Promise<void> => {
         const validToken = jwt.sign(
           { userId: 'test123' },
           'test-secret'
@@ -307,7 +353,10 @@ describe('DEX Security Tests', function() {
         }
       });
 
-      it('should sanitize user inputs', async () => {
+      /**
+       * Tests sanitization of user inputs
+       */
+    it('should sanitize user inputs', async (): Promise<void> => {
         const validToken = jwt.sign(
           { userId: 'test123' },
           'test-secret'
@@ -344,7 +393,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('Rate Limiting', () => {
-      it('should enforce rate limits', async function() {
+      /**
+       * Tests enforcement of rate limits
+       */
+    it('should enforce rate limits', async function(): Promise<void> {
         this.timeout(10000);
         
         const validToken = jwt.sign(
@@ -376,7 +428,10 @@ describe('DEX Security Tests', function() {
     });
 
     describe('CORS Policy', () => {
-      it('should enforce CORS policy', async () => {
+      /**
+       * Tests enforcement of CORS policy
+       */
+    it('should enforce CORS policy', async (): Promise<void> => {
         try {
           await axios.get(`${API_URL}/ticker/ETH/USDC`, {
             headers: {
@@ -396,8 +451,10 @@ describe('DEX Security Tests', function() {
   });
 
   describe('WebSocket Security', () => {
-    it('should require authentication for private channels', async () => {
-      const WebSocket = require('ws');
+    /**
+     * Tests authentication requirement for private channels
+     */
+    it('should require authentication for private channels', async (): Promise<void> => {
       const ws = new WebSocket('ws://localhost:3001/ws');
       
       await new Promise((resolve) => {
@@ -419,8 +476,10 @@ describe('DEX Security Tests', function() {
       });
     });
 
-    it('should validate WebSocket message format', async () => {
-      const WebSocket = require('ws');
+    /**
+     * Tests validation of WebSocket message format
+     */
+    it('should validate WebSocket message format', async (): Promise<void> => {
       const ws = new WebSocket('ws://localhost:3001/ws');
       
       await new Promise((resolve) => {
@@ -441,7 +500,10 @@ describe('DEX Security Tests', function() {
   });
 
   describe('Data Privacy', () => {
-    it('should not expose private user data', async () => {
+    /**
+     * Tests that private user data is not exposed
+     */
+    it('should not expose private user data', async (): Promise<void> => {
       const validToken = jwt.sign(
         { userId: 'user123', address: user1.address },
         'test-secret'
@@ -466,7 +528,10 @@ describe('DEX Security Tests', function() {
       expect(ownOrders.data).to.not.deep.equal(otherOrders.data);
     });
 
-    it('should anonymize trade data in public endpoints', async () => {
+    /**
+     * Tests anonymization of trade data in public endpoints
+     */
+    it('should anonymize trade data in public endpoints', async (): Promise<void> => {
       const trades = await axios.get(`${API_URL}/trades/ETH/USDC`);
       
       trades.data.forEach((trade: any) => {
@@ -480,7 +545,10 @@ describe('DEX Security Tests', function() {
   });
 
   describe('Signature Verification', () => {
-    it('should verify order signatures', async () => {
+    /**
+     * Tests verification of order signatures
+     */
+    it('should verify order signatures', async (): Promise<void> => {
       const order = {
         pair: 'ETH/USDC',
         side: 'buy',
@@ -532,7 +600,10 @@ describe('DEX Security Tests', function() {
   });
 
   describe('Withdrawal Security', () => {
-    it('should require time lock for large withdrawals', async () => {
+    /**
+     * Tests time lock requirement for large withdrawals
+     */
+    it('should require time lock for large withdrawals', async (): Promise<void> => {
       const largeAmount = ethers.utils.parseEther('10000');
       
       // Request withdrawal
@@ -556,7 +627,10 @@ describe('DEX Security Tests', function() {
       ).to.not.be.reverted;
     });
 
-    it('should limit daily withdrawal amounts', async () => {
+    /**
+     * Tests daily withdrawal amount limits
+     */
+    it('should limit daily withdrawal amounts', async (): Promise<void> => {
       const dailyLimit = ethers.utils.parseEther('50000');
       
       // Try to withdraw more than daily limit
@@ -570,7 +644,10 @@ describe('DEX Security Tests', function() {
   });
 
   describe('Emergency Procedures', () => {
-    it('should allow emergency pause by owner', async () => {
+    /**
+     * Tests emergency pause functionality
+     */
+    it('should allow emergency pause by owner', async (): Promise<void> => {
       await orderBook.connect(owner).pauseTrading();
       
       // Try to place order
@@ -583,7 +660,10 @@ describe('DEX Security Tests', function() {
       ).to.be.revertedWith('Trading paused');
     });
 
-    it('should have circuit breaker for extreme volatility', async () => {
+    /**
+     * Tests circuit breaker for extreme volatility
+     */
+    it('should have circuit breaker for extreme volatility', async (): Promise<void> => {
       // Simulate extreme price movement
       const normalPrice = ethers.utils.parseEther('2000');
       const crashPrice = ethers.utils.parseEther('1000'); // 50% drop

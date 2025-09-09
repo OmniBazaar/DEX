@@ -44,21 +44,24 @@ class DEXServer {
     rateLimitMax: number;
   };
 
+  /**
+   * Creates a new DEXServer instance
+   */
   constructor() {
     this.app = express();
     this.server = createServer(this.app);
     this.io = new SocketIOServer(this.server, {
       cors: {
-        origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
+        origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
         methods: ['GET', 'POST']
       }
     });
     
     this.config = {
-      port: parseInt(process.env.PORT || '3003'),
-      corsOrigin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
-      rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '900000'), // 15 minutes
-      rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '1000')
+      port: parseInt(process.env.PORT ?? '3003'),
+      corsOrigin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
+      rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW ?? '900000'), // 15 minutes
+      rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX ?? '1000')
     };
     
     this.setupMiddleware();
@@ -77,7 +80,7 @@ class DEXServer {
           scriptSrc: ["'self'", "'unsafe-inline'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", "data:", "https:"],
-          connectSrc: ["'self'", "wss:", "ws:", process.env.VALIDATOR_ENDPOINT || 'http://localhost:4000']
+          connectSrc: ["'self'", "wss:", "ws:", process.env.VALIDATOR_ENDPOINT ?? 'http://localhost:4000']
         }
       }
     }));
@@ -149,16 +152,16 @@ class DEXServer {
    */
   private setupRoutes(): void {
     // Health check endpoint
-    this.app.get('/health', async (_req: Request, res: Response) => {
+    this.app.get('/health', (_req: Request, res: Response) => {
       try {
         // Check validator connection
-        await validatorDEX.getOrderBook('XOM/USDC', 1);
+        void validatorDEX.getOrderBook('XOM/USDC', 1);
         
         res.json({
           status: 'healthy',
           timestamp: new Date().toISOString(),
-          version: process.env.npm_package_version || '0.1.0',
-          environment: process.env.NODE_ENV || 'development',
+          version: (process.env.npm_package_version !== null && process.env.npm_package_version !== undefined && process.env.npm_package_version !== '') ? process.env.npm_package_version : '0.1.0',
+          environment: (process.env.NODE_ENV !== null && process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== '') ? process.env.NODE_ENV : 'development',
           validator: {
             connected: true,
             endpoint: process.env.VALIDATOR_ENDPOINT,
@@ -202,8 +205,8 @@ class DEXServer {
           'IPFS storage integration'
         ],
         endpoints: {
-          graphql: process.env.VALIDATOR_ENDPOINT || 'http://localhost:4000',
-          websocket: process.env.VALIDATOR_WS_ENDPOINT || 'ws://localhost:4000/graphql'
+          graphql: (process.env.VALIDATOR_ENDPOINT !== null && process.env.VALIDATOR_ENDPOINT !== undefined && process.env.VALIDATOR_ENDPOINT !== '') ? process.env.VALIDATOR_ENDPOINT : 'http://localhost:4000',
+          websocket: (process.env.VALIDATOR_WS_ENDPOINT !== null && process.env.VALIDATOR_WS_ENDPOINT !== undefined && process.env.VALIDATOR_WS_ENDPOINT !== '') ? process.env.VALIDATOR_WS_ENDPOINT : 'ws://localhost:4000/graphql'
         }
       });
     });
@@ -211,8 +214,9 @@ class DEXServer {
     // Error handling middleware
     this.app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => {
       logger.error('API Error:', error);
-      res.status((error as {status?: number}).status || 500).json({
-        error: error.message || 'Internal Server Error',
+      const statusCode = (error as {status?: number}).status;
+      res.status((statusCode !== null && statusCode !== undefined && statusCode !== 0) ? statusCode : 500).json({
+        error: (error.message !== null && error.message !== undefined && error.message !== '') ? error.message : 'Internal Server Error',
         timestamp: new Date().toISOString()
       });
     });
@@ -238,7 +242,7 @@ class DEXServer {
         logger.info('🚀 DEX SERVER RUNNING WITH AVALANCHE VALIDATOR');
         logger.info(`📡 API Server: http://localhost:${this.config.port}`);
         logger.info(`🔌 WebSocket: ws://localhost:${this.config.port}`);
-        logger.info(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+        logger.info(`🌐 Environment: ${(process.env.NODE_ENV !== null && process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== '') ? process.env.NODE_ENV : 'development'}`);
         logger.info('📊 Avalanche Integration:');
         logger.info(`   ✅ GraphQL Endpoint: ${process.env.VALIDATOR_ENDPOINT}`);
         logger.info(`   ✅ WebSocket: ${process.env.VALIDATOR_WS_ENDPOINT}`);
@@ -264,10 +268,10 @@ class DEXServer {
     try {
       // Close WebSocket connections
       this.wsService.cleanup();
-      this.io.close();
+      void this.io.close();
 
       // Close HTTP server
-      if (this.server) {
+      if (this.server !== null && this.server !== undefined) {
         this.server.close();
       }
 
@@ -288,14 +292,14 @@ class DEXServer {
 const dexServer = new DEXServer();
 
 // Handle process signals for graceful shutdown
-process.on('SIGINT', async () => {
+process.on('SIGINT', () => {
   logger.info('Received SIGINT, initiating graceful shutdown...');
-  await dexServer.shutdown();
+  void dexServer.shutdown();
 });
 
-process.on('SIGTERM', async () => {
+process.on('SIGTERM', () => {
   logger.info('Received SIGTERM, initiating graceful shutdown...');
-  await dexServer.shutdown();
+  void dexServer.shutdown();
 });
 
 process.on('uncaughtException', (error) => {

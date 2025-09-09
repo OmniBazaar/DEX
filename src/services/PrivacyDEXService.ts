@@ -18,12 +18,8 @@ import { EventEmitter } from 'events';
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger';
 import { generateOrderId } from '../utils/id-generator';
-import { 
-  UnifiedOrder, 
-  Trade, 
-  TradingPair, 
-  OrderBook,
-  Balance 
+import type { 
+  UnifiedOrder
 } from '../types/config';
 
 // COTI SDK types (when available)
@@ -32,10 +28,6 @@ interface CtUint64 {
   signature: Uint8Array | string;
 }
 
-interface UtUint64 {
-  value: bigint;
-  proof: string;
-}
 
 /**
  * Privacy order with encrypted amounts
@@ -142,7 +134,18 @@ export class PrivacyDEXService extends EventEmitter {
   private privacyOrders = new Map<string, PrivacyOrder>();
   private privacyPools = new Map<string, PrivacyLiquidityPool>();
   private userKeys = new Map<string, string>(); // User public keys for encryption
-  private mpcClient: any; // COTI MPC client
+  private mpcClient: {
+    buildInputText?: unknown;
+    buildStringInputText?: unknown;
+    connected?: boolean;
+    encrypt?: (value: bigint) => Promise<CtUint64>;
+    decrypt?: (encryptedValue: CtUint64) => Promise<bigint>;
+    decryptForOwner?: (encrypted: CtUint64, owner: string) => Promise<bigint>;
+    addEncrypted?: (a: CtUint64, b: CtUint64) => Promise<CtUint64>;
+    subtractEncrypted?: (a: CtUint64, b: CtUint64) => Promise<CtUint64>;
+    computeSwapOutput?: (amountIn: CtUint64, reserveIn: CtUint64, reserveOut: CtUint64) => Promise<CtUint64>;
+    compareEncrypted?: (a: CtUint64, b: CtUint64 | bigint, op: string) => Promise<boolean>;
+  } | undefined; // COTI MPC client
   
   // Standard pXOM trading pairs
   private readonly PXOM_PAIRS = [
@@ -154,6 +157,11 @@ export class PrivacyDEXService extends EventEmitter {
     'pXOM/USDT'
   ];
   
+  /**
+   * Creates a new Privacy DEX Service
+   * @param config - Privacy DEX configuration
+   * @param provider - Ethereum provider
+   */
   constructor(config: Partial<PrivacyDEXConfig>, provider: ethers.Provider) {
     super();
     
@@ -168,7 +176,7 @@ export class PrivacyDEXService extends EventEmitter {
     };
     
     this.provider = provider;
-    this.initialize();
+    void this.initialize();
   }
   
   /**
@@ -206,7 +214,7 @@ export class PrivacyDEXService extends EventEmitter {
         return null;
       });
       
-      if (cotiSDK && this.config.privacyEnabled) {
+      if (cotiSDK !== null && this.config.privacyEnabled) {
         // Initialize COTI provider and MPC functions
         const { buildInputText, buildStringInputText } = cotiSDK;
         
@@ -220,16 +228,19 @@ export class PrivacyDEXService extends EventEmitter {
           buildInputText,
           buildStringInputText,
           connected: true,
-          encrypt: async (_value: bigint) => {
+          encrypt: (_value: bigint): Promise<CtUint64> => {
             // Use COTI SDK encryption
             // buildInputText with simplified params for compilation
-            return new Uint8Array([0]) as any;
+            return Promise.resolve({
+              ciphertext: _value,
+              signature: new Uint8Array([0])
+            });
           },
-          decrypt: async (encryptedValue: any) => {
+          decrypt: (encryptedValue: CtUint64): Promise<bigint> => {
             // Use COTI SDK decryption - simplified for compilation
-            return BigInt(encryptedValue || 0);
+            return Promise.resolve(encryptedValue?.ciphertext ?? BigInt(0));
           }
-        } as any;
+        };
         
         logger.info('COTI MPC client initialized successfully');
       } else {
@@ -264,6 +275,14 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Create a privacy-preserving order
+   * @param user - User's Ethereum address
+   * @param pair - Trading pair symbol
+   * @param side - Order side (buy or sell)
+   * @param amount - Order amount
+   * @param orderType - Order type (market or limit)
+   * @param price - Order price for limit orders
+   * @param usePrivacy - Whether to use privacy features
+   * @returns Promise resolving to order ID
    */
   async createPrivacyOrder(
     user: string,
@@ -277,14 +296,14 @@ export class PrivacyDEXService extends EventEmitter {
     try {
       const orderId = generateOrderId();
       
-      let order: PrivacyOrder = {
+      const order: PrivacyOrder = {
         id: orderId,
         userId: user,
         pair,
         side: side as 'BUY' | 'SELL',
         type: orderType as 'MARKET' | 'LIMIT',
         quantity: amount.toString(),
-        price: price || 0,
+        price: price ?? 0,
         status: 'OPEN',
         isPrivate: usePrivacy,
         timestamp: Date.now(),
@@ -298,10 +317,10 @@ export class PrivacyDEXService extends EventEmitter {
         replicationNodes: []
       };
       
-      if (usePrivacy && this.mpcClient) {
+      if (usePrivacy && this.mpcClient !== undefined) {
         // Encrypt amount and price for privacy orders
         order.encryptedAmount = await this.encryptValue(BigInt(Math.floor(amount * 1e18)));
-        if (price) {
+        if (price !== undefined) {
           order.encryptedPrice = await this.encryptValue(BigInt(Math.floor(price * 1e18)));
         }
         order.ownerPubKey = await this.getUserPublicKey(user);
@@ -336,6 +355,8 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Execute a privacy-preserving swap
+   * @param request - Privacy swap request parameters
+   * @returns Promise resolving to swap result
    */
   async executePrivacySwap(request: PrivacySwapRequest): Promise<PrivacySwapResult> {
     try {
@@ -351,7 +372,7 @@ export class PrivacyDEXService extends EventEmitter {
       const pair = `${tokenIn}/${tokenOut}`;
       const pool = this.privacyPools.get(pair);
       
-      if (!pool) {
+      if (pool === undefined) {
         return {
           success: false,
           error: `No liquidity pool found for ${pair}`
@@ -363,11 +384,11 @@ export class PrivacyDEXService extends EventEmitter {
       let fee: number;
       let priceImpact: number;
       
-      if (usePrivacy && this.mpcClient) {
+      if (usePrivacy && this.mpcClient !== undefined) {
         // Privacy-preserving swap with encrypted amounts
         const encryptedAmountIn = typeof amountIn === 'number' 
           ? await this.encryptValue(BigInt(Math.floor(amountIn * 1e18)))
-          : amountIn as CtUint64;
+          : amountIn;
           
         amountOut = await this.calculatePrivacySwapOutput(
           encryptedAmountIn,
@@ -434,8 +455,10 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Execute XOM ↔ pXOM conversion
+   * @param request - Privacy swap request for conversion
+   * @returns Promise resolving to conversion result
    */
-  private async executeConversion(request: PrivacySwapRequest): Promise<PrivacySwapResult> {
+  private executeConversion(request: PrivacySwapRequest): Promise<PrivacySwapResult> {
     const { user, tokenIn, tokenOut, amountIn } = request;
     const amountInNum = typeof amountIn === 'number' ? amountIn : 0;
     
@@ -488,17 +511,23 @@ export class PrivacyDEXService extends EventEmitter {
       txHash
     });
     
-    return {
+    return Promise.resolve({
       success: true,
       txHash,
       amountOut,
       fee,
       priceImpact: 0 // No price impact for conversions
-    };
+    });
   }
   
   /**
    * Add liquidity to privacy pool
+   * @param user - User's Ethereum address
+   * @param pair - Trading pair symbol
+   * @param amountA - Amount of token A to add
+   * @param amountB - Amount of token B to add
+   * @param usePrivacy - Whether to use privacy features
+   * @returns Promise resolving to transaction hash
    */
   async addPrivacyLiquidity(
     user: string,
@@ -509,17 +538,17 @@ export class PrivacyDEXService extends EventEmitter {
   ): Promise<string> {
     try {
       const pool = this.privacyPools.get(pair);
-      if (!pool) {
+      if (pool === undefined) {
         throw new Error(`Pool ${pair} not found`);
       }
       
-      if (usePrivacy && this.mpcClient) {
+      if (usePrivacy && this.mpcClient !== undefined) {
         // Add encrypted liquidity
         const encAmountA = await this.encryptValue(BigInt(Math.floor(amountA * 1e18)));
         const encAmountB = await this.encryptValue(BigInt(Math.floor(amountB * 1e18)));
         
         // Update encrypted reserves using MPC addition
-        if (this.mpcClient.addEncrypted) {
+        if (this.mpcClient.addEncrypted !== undefined) {
           pool.encryptedReserveA = await this.mpcClient.addEncrypted(
             pool.encryptedReserveA,
             encAmountA
@@ -600,14 +629,23 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Get privacy pool information
+   * @param pair - Trading pair symbol
+   * @returns Promise resolving to pool information or null if not found
    */
-  async getPrivacyPoolInfo(pair: string): Promise<any> {
+  getPrivacyPoolInfo(pair: string): Promise<{
+    poolId: string;
+    pair: string;
+    totalShares: string;
+    feePercentage: number;
+    privacyEnabled: boolean;
+    hasLiquidity: boolean;
+  } | null> {
     const pool = this.privacyPools.get(pair);
-    if (!pool) {
-      return null;
+    if (pool === undefined) {
+      return Promise.resolve(null);
     }
     
-    return {
+    return Promise.resolve({
       poolId: pool.poolId,
       pair: pool.pair,
       totalShares: pool.totalShares.toString(),
@@ -615,20 +653,23 @@ export class PrivacyDEXService extends EventEmitter {
       privacyEnabled: pool.privacyEnabled,
       // Don't expose encrypted reserves directly
       hasLiquidity: pool.totalShares > 0
-    };
+    });
   }
   
   /**
    * Get user's privacy orders
+   * @param user - User's Ethereum address
+   * @param showDecrypted - Whether to decrypt private order amounts
+   * @returns Promise resolving to array of user's privacy orders
    */
   async getUserPrivacyOrders(user: string, showDecrypted = false): Promise<PrivacyOrder[]> {
     const userOrders = Array.from(this.privacyOrders.values())
       .filter(order => order.userId === user);
     
-    if (showDecrypted && this.mpcClient) {
+    if (showDecrypted && this.mpcClient !== undefined) {
       // Decrypt orders for the owner
       for (const order of userOrders) {
-        if (order.isPrivate && order.encryptedAmount) {
+        if (order.isPrivate && order.encryptedAmount !== undefined) {
           try {
             const decrypted = await this.decryptForOwner(
               order.encryptedAmount,
@@ -647,6 +688,7 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Get pXOM trading pairs
+   * @returns Array of supported pXOM trading pairs
    */
   getPXOMPairs(): string[] {
     return this.PXOM_PAIRS;
@@ -654,6 +696,8 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Check if a pair supports privacy
+   * @param pair - Trading pair symbol to check
+   * @returns True if the pair supports privacy features
    */
   isPrivacyPair(pair: string): boolean {
     return pair.includes('pXOM') || this.config.privacyPairs.includes(pair);
@@ -663,9 +707,11 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Encrypt a value using Garbled Circuits
+   * @param value - BigInt value to encrypt
+   * @returns Promise resolving to encrypted value
    */
   private async encryptValue(value: bigint): Promise<CtUint64> {
-    if (this.mpcClient) {
+    if (this.mpcClient?.encrypt !== undefined) {
       return await this.mpcClient.encrypt(value);
     }
     
@@ -678,9 +724,12 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Decrypt a value for the owner
+   * @param encrypted - Encrypted value to decrypt
+   * @param owner - Owner address for decryption
+   * @returns Promise resolving to decrypted value
    */
   private async decryptForOwner(encrypted: CtUint64, owner: string): Promise<bigint> {
-    if (this.mpcClient) {
+    if (this.mpcClient?.decryptForOwner !== undefined) {
       return await this.mpcClient.decryptForOwner(encrypted, owner);
     }
     
@@ -690,21 +739,27 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Get user's public key for encryption
+   * @param user - User address to get public key for
+   * @returns Promise resolving to user's public key
    */
-  private async getUserPublicKey(user: string): Promise<string> {
+  private getUserPublicKey(user: string): Promise<string> {
     let pubKey = this.userKeys.get(user);
     
-    if (!pubKey) {
+    if (pubKey === undefined) {
       // Generate or fetch user's public key
       pubKey = `pubkey_${user.substring(2, 10)}`;
       this.userKeys.set(user, pubKey);
     }
     
-    return pubKey;
+    return Promise.resolve(pubKey);
   }
   
   /**
    * Calculate swap output amount (standard AMM)
+   * @param amountIn - Input amount
+   * @param reserveIn - Input token reserve
+   * @param reserveOut - Output token reserve
+   * @returns Calculated output amount
    */
   private calculateSwapOutput(
     amountIn: number,
@@ -719,13 +774,17 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Calculate privacy swap output (using MPC)
+   * @param encryptedAmountIn - Encrypted input amount
+   * @param encryptedReserveIn - Encrypted input reserve
+   * @param encryptedReserveOut - Encrypted output reserve
+   * @returns Promise resolving to encrypted output amount
    */
   private async calculatePrivacySwapOutput(
     encryptedAmountIn: CtUint64,
     encryptedReserveIn: CtUint64,
     encryptedReserveOut: CtUint64
   ): Promise<CtUint64> {
-    if (this.mpcClient) {
+    if (this.mpcClient?.computeSwapOutput !== undefined) {
       // Use MPC to calculate output without revealing values
       return await this.mpcClient.computeSwapOutput(
         encryptedAmountIn,
@@ -743,6 +802,9 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Submit swap transaction to blockchain
+   * @param request - Privacy swap request
+   * @param amountOut - Calculated output amount
+   * @returns Promise resolving to transaction hash
    */
   private async submitSwapTransaction(
     request: PrivacySwapRequest,
@@ -756,8 +818,8 @@ export class PrivacyDEXService extends EventEmitter {
       amountIn: request.amountIn,
       amountOut: typeof amountOut === 'number' ? amountOut : 'encrypted',
       minAmountOut: request.minAmountOut,
-      deadline: request.deadline || Date.now() + 600000, // 10 minutes default
-      slippage: request.slippage || 0.005,
+      deadline: request.deadline ?? Date.now() + 600000, // 10 minutes default
+      slippage: request.slippage ?? 0.005,
       usePrivacy: request.usePrivacy,
       timestamp: Date.now(),
       nonce: Math.floor(Math.random() * 1000000)
@@ -793,13 +855,15 @@ export class PrivacyDEXService extends EventEmitter {
    * Start privacy order matching engine
    */
   private startPrivacyOrderMatching(): void {
-    setInterval(async () => {
+    setInterval(() => {
+      void (async () => {
       try {
         // Match privacy orders
         await this.matchPrivacyOrders();
       } catch (error) {
         logger.error('Privacy order matching error:', error);
       }
+      })();
     }, 1000); // Match every second
   }
   
@@ -812,14 +876,14 @@ export class PrivacyDEXService extends EventEmitter {
     
     for (const order of this.privacyOrders.values()) {
       if (order.status === 'OPEN') {
-        const orders = ordersByPair.get(order.pair) || [];
+        const orders = ordersByPair.get(order.pair) ?? [];
         orders.push(order);
         ordersByPair.set(order.pair, orders);
       }
     }
     
     // Match orders for each pair
-    for (const [pair, orders] of ordersByPair) {
+    for (const [_pair, orders] of ordersByPair) {
       const buyOrders = orders.filter(o => o.side === 'BUY');
       const sellOrders = orders.filter(o => o.side === 'SELL');
       
@@ -836,6 +900,9 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Check if two orders can be matched
+   * @param buyOrder - Buy order to check
+   * @param sellOrder - Sell order to check
+   * @returns Promise resolving to true if orders can be matched
    */
   private async canMatch(buyOrder: PrivacyOrder, sellOrder: PrivacyOrder): Promise<boolean> {
     // Basic status check
@@ -849,9 +916,9 @@ export class PrivacyDEXService extends EventEmitter {
     }
     
     // For privacy orders with MPC
-    if (buyOrder.isPrivate && sellOrder.isPrivate && this.mpcClient) {
+    if (buyOrder.isPrivate && sellOrder.isPrivate && this.mpcClient !== undefined) {
       // Use MPC to compare encrypted values without revealing them
-      if (buyOrder.encryptedPrice && sellOrder.encryptedPrice) {
+      if (buyOrder.encryptedPrice !== undefined && sellOrder.encryptedPrice !== undefined) {
         try {
           // Compare encrypted prices using MPC comparison
           const canMatchPrice = await this.mpcClient.compareEncrypted?.(
@@ -860,19 +927,19 @@ export class PrivacyDEXService extends EventEmitter {
             '>=' // Buy price >= Sell price
           );
           
-          if (!canMatchPrice) {
+          if (canMatchPrice !== true) {
             return false;
           }
           
           // Compare encrypted amounts for sufficient liquidity
-          if (buyOrder.encryptedAmount && sellOrder.encryptedAmount) {
+          if (buyOrder.encryptedAmount !== undefined && sellOrder.encryptedAmount !== undefined) {
             const hasLiquidity = await this.mpcClient.compareEncrypted?.(
               sellOrder.encryptedAmount,
               BigInt(0),
               '>' // Sell amount > 0
             );
             
-            return hasLiquidity || false;
+            return hasLiquidity === true;
           }
         } catch (error) {
           logger.warn('MPC comparison failed, falling back to basic match', error);
@@ -888,7 +955,7 @@ export class PrivacyDEXService extends EventEmitter {
       }
       
       // Limit orders: buy price must be >= sell price
-      if (buyOrder.price && sellOrder.price) {
+      if (buyOrder.price !== undefined && sellOrder.price !== undefined) {
         return buyOrder.price >= sellOrder.price;
       }
     }
@@ -903,8 +970,11 @@ export class PrivacyDEXService extends EventEmitter {
   
   /**
    * Execute order match
+   * @param buyOrder - Buy order to execute
+   * @param sellOrder - Sell order to execute
+   * @returns Promise that resolves when match is executed
    */
-  private async executeMatch(buyOrder: PrivacyOrder, sellOrder: PrivacyOrder): Promise<void> {
+  private executeMatch(buyOrder: PrivacyOrder, sellOrder: PrivacyOrder): Promise<void> {
     buyOrder.status = 'FILLED';
     sellOrder.status = 'FILLED';
     
@@ -918,45 +988,64 @@ export class PrivacyDEXService extends EventEmitter {
       buyOrderId: buyOrder.id,
       sellOrderId: sellOrder.id
     });
+    
+    return Promise.resolve();
   }
   
   /**
    * Get privacy DEX statistics
+   * @returns Promise resolving to comprehensive privacy DEX statistics
    */
-  async getPrivacyStats(): Promise<any> {
+  getPrivacyStats(): Promise<{
+    totalOrders: number;
+    privateOrders: number;
+    publicOrders: number;
+    privacyPools: number;
+    supportedPairs: string[];
+    privacyEnabled: boolean;
+    mpcConnected: boolean;
+  }> {
     const totalOrders = this.privacyOrders.size;
     const privateOrders = Array.from(this.privacyOrders.values())
       .filter(o => o.isPrivate).length;
     
-    return {
+    return Promise.resolve({
       totalOrders,
       privateOrders,
       publicOrders: totalOrders - privateOrders,
       privacyPools: this.privacyPools.size,
       supportedPairs: this.config.privacyPairs,
       privacyEnabled: this.config.privacyEnabled,
-      mpcConnected: !!this.mpcClient
-    };
+      mpcConnected: this.mpcClient !== undefined
+    });
   }
   
   /**
    * Get pool reserve amount
+   * @param pool - Privacy liquidity pool to get reserves from
+   * @param side - Reserve side to get (A or B)
+   * @returns Promise resolving to reserve amount
    */
-  private async getPoolReserve(pool: PrivacyLiquidityPool, side: 'A' | 'B'): Promise<number> {
+  private getPoolReserve(pool: PrivacyLiquidityPool, side: 'A' | 'B'): Promise<number> {
     // If we have decrypted reserves, use them
     if (pool.totalShares > 0) {
       // Calculate reserves based on total shares and initial liquidity
       // Using constant product formula: k = x * y
       const baseReserve = Number(pool.totalShares) / 1e18;
-      return baseReserve * (side === 'A' ? 1 : 0.99); // Slight imbalance for price discovery
+      return Promise.resolve(baseReserve * (side === 'A' ? 1 : 0.99)); // Slight imbalance for price discovery
     }
     
     // Default initial liquidity
-    return 100000; // 100k tokens initial liquidity
+    return Promise.resolve(100000); // 100k tokens initial liquidity
   }
   
   /**
    * Update pool reserves after swap
+   * @param pool - Privacy liquidity pool to update
+   * @param tokenIn - Input token symbol
+   * @param _tokenOut - Output token symbol (unused)
+   * @param amountIn - Input amount
+   * @param amountOut - Output amount
    */
   private async updatePoolReserves(
     pool: PrivacyLiquidityPool,
@@ -966,10 +1055,10 @@ export class PrivacyDEXService extends EventEmitter {
     amountOut: number | CtUint64
   ): Promise<void> {
     // Determine which reserve is which based on token pair
-    const [tokenA, tokenB] = pool.pair.split('/');
+    const [tokenA] = pool.pair.split('/');
     const isTokenInA = tokenIn === tokenA;
     
-    if (this.mpcClient && pool.privacyEnabled) {
+    if (this.mpcClient?.addEncrypted !== undefined && this.mpcClient?.subtractEncrypted !== undefined && pool.privacyEnabled) {
       // Update encrypted reserves using MPC
       if (isTokenInA) {
         // Add to reserve A, subtract from reserve B

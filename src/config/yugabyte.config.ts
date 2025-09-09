@@ -10,15 +10,27 @@ import { StorageConfig } from '../storage/HybridDEXStorage';
 /**
  * Get YugabyteDB connection configuration
  * Uses PostgreSQL-compatible interface
+ * @returns Database connection configuration object
  */
-export function getYugabyteConfig() {
+export function getYugabyteConfig(): {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  max: number;
+  connectionTimeoutMillis: number;
+  query_timeout: number;
+  statement_timeout: number;
+  idle_in_transaction_session_timeout: number;
+} {
   return {
-    host: process.env['YUGABYTE_HOST'] || process.env['DB_HOST'] || '127.0.1.1',
-    port: parseInt(process.env['YUGABYTE_PORT'] || process.env['DB_PORT'] || '5433'),
-    database: process.env['YUGABYTE_DB'] || process.env['DB_NAME'] || 'omnibazaar',
-    user: process.env['YUGABYTE_USER'] || process.env['DB_USER'] || 'omnibazaar_dev',
-    password: process.env['YUGABYTE_PASSWORD'] || process.env['DB_PASSWORD'] || 'dev_password_2025',
-    max: parseInt(process.env['YUGABYTE_POOL_SIZE'] || '20'),
+    host: process.env['YUGABYTE_HOST'] ?? process.env['DB_HOST'] ?? '127.0.1.1',
+    port: parseInt(process.env['YUGABYTE_PORT'] ?? process.env['DB_PORT'] ?? '5433'),
+    database: process.env['YUGABYTE_DB'] ?? process.env['DB_NAME'] ?? 'omnibazaar',
+    user: process.env['YUGABYTE_USER'] ?? process.env['DB_USER'] ?? 'omnibazaar_dev',
+    password: process.env['YUGABYTE_PASSWORD'] ?? process.env['DB_PASSWORD'] ?? 'dev_password_2025',
+    max: parseInt(process.env['YUGABYTE_POOL_SIZE'] ?? '20'),
     // YugabyteDB-specific options
     connectionTimeoutMillis: 5000,
     query_timeout: 30000,
@@ -35,10 +47,10 @@ export const YUGABYTE_STORAGE_CONFIG: StorageConfig = {
   // Hot tier: Redis for ultra-low latency (<10ms)
   // Active orders, current order books, session data
   redis: {
-    host: process.env['REDIS_HOST'] || 'localhost',
-    port: parseInt(process.env['REDIS_PORT'] || '6379'),
-    ...(process.env['REDIS_PASSWORD'] ? { password: process.env['REDIS_PASSWORD'] } : {}),
-    db: parseInt(process.env['REDIS_DB'] || '0')
+    host: process.env['REDIS_HOST'] ?? 'localhost',
+    port: parseInt(process.env['REDIS_PORT'] ?? '6379'),
+    ...(process.env['REDIS_PASSWORD'] !== undefined ? { password: process.env['REDIS_PASSWORD'] } : {}),
+    db: parseInt(process.env['REDIS_DB'] ?? '0')
   },
   
   // Warm tier: YugabyteDB for operational data (<100ms)
@@ -48,15 +60,15 @@ export const YUGABYTE_STORAGE_CONFIG: StorageConfig = {
   // Cold tier: IPFS for archival (100ms+)
   // Historical data, audit trails, compliance records
   ipfs: {
-    host: process.env['IPFS_HOST'] || 'localhost',
-    port: parseInt(process.env['IPFS_API_PORT'] || '5001'),
-    protocol: process.env['IPFS_PROTOCOL'] || 'http'
+    host: process.env['IPFS_HOST'] ?? 'localhost',
+    port: parseInt(process.env['IPFS_API_PORT'] ?? '5001'),
+    protocol: process.env['IPFS_PROTOCOL'] ?? 'http'
   },
   
   // Archival settings
   archival: {
-    threshold: parseInt(process.env['ARCHIVAL_THRESHOLD_DAYS'] || '7'),
-    batchSize: parseInt(process.env['ARCHIVAL_BATCH_SIZE'] || '100')
+    threshold: parseInt(process.env['ARCHIVAL_THRESHOLD_DAYS'] ?? '7'),
+    batchSize: parseInt(process.env['ARCHIVAL_BATCH_SIZE'] ?? '100')
   }
 };
 
@@ -92,6 +104,7 @@ export const DEV_HYBRID_CONFIG: StorageConfig = {
 /**
  * Check which storage services are available
  * Returns configuration based on available services
+ * @returns Promise resolving to service availability and appropriate config
  */
 export async function detectAvailableStorage(): Promise<{
   hasRedis: boolean;
@@ -103,22 +116,22 @@ export async function detectAvailableStorage(): Promise<{
   
   // Check Redis availability
   const hasRedis = await checkServiceAvailable(
-    process.env['REDIS_HOST'] || 'localhost',
-    parseInt(process.env['REDIS_PORT'] || '6379'),
+    process.env['REDIS_HOST'] ?? 'localhost',
+    parseInt(process.env['REDIS_PORT'] ?? '6379'),
     net
   );
   
   // Check YugabyteDB availability
   const hasYugabyte = await checkServiceAvailable(
-    process.env['DB_HOST'] || '127.0.1.1',
-    parseInt(process.env['DB_PORT'] || '5433'),
+    process.env['DB_HOST'] ?? '127.0.1.1',
+    parseInt(process.env['DB_PORT'] ?? '5433'),
     net
   );
   
   // Check IPFS availability
   const hasIPFS = await checkServiceAvailable(
-    process.env['IPFS_HOST'] || 'localhost',
-    parseInt(process.env['IPFS_API_PORT'] || '5001'),
+    process.env['IPFS_HOST'] ?? 'localhost',
+    parseInt(process.env['IPFS_API_PORT'] ?? '5001'),
     net
   );
   
@@ -148,6 +161,10 @@ export async function detectAvailableStorage(): Promise<{
 
 /**
  * Check if a service is available on a given host:port
+ * @param host - The host to check
+ * @param port - The port to check
+ * @param net - The net module for socket connections
+ * @returns Promise resolving to true if service is available
  */
 async function checkServiceAvailable(
   host: string,

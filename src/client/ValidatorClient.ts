@@ -45,11 +45,11 @@ export class ValidatorClient implements OmniValidatorClient {
    * Get health status of all validator services
    * @returns Promise resolving to health status information
    */
-  async getHealth(): Promise<HealthStatus> {
+  getHealth(): Promise<HealthStatus> {
     // Mock implementation - replace with actual API call
     logger.info('Getting health status', { endpoint: this._config.validatorEndpoint });
     
-    return {
+    return Promise.resolve({
       services: {
         orderBook: true,
         trading: true,
@@ -58,7 +58,7 @@ export class ValidatorClient implements OmniValidatorClient {
       },
       uptime: Date.now() - 1000000, // Mock uptime
       version: '1.0.0'
-    };
+    });
   }
 
   /**
@@ -67,11 +67,11 @@ export class ValidatorClient implements OmniValidatorClient {
    * @param depth - Number of price levels to include
    * @returns Promise resolving to order book data
    */
-  async getOrderBook(tokenPair: string, depth: number): Promise<OrderBookData> {
+  getOrderBook(tokenPair: string, depth: number): Promise<OrderBookData> {
     logger.info('Getting order book', { tokenPair, depth });
     
     // Mock implementation - replace with actual API call
-    return {
+    return Promise.resolve({
       bids: [
         { price: '100.00', quantity: '10.5' },
         { price: '99.50', quantity: '25.0' }
@@ -82,7 +82,7 @@ export class ValidatorClient implements OmniValidatorClient {
       ],
       spread: '1.00',
       midPrice: '100.50'
-    };
+    });
   }
 
   /**
@@ -90,25 +90,26 @@ export class ValidatorClient implements OmniValidatorClient {
    * @param order - Order details to place
    * @returns Promise resolving to order ID
    */
-  async placeOrder(order: PlaceOrderRequest): Promise<string> {
+  placeOrder(order: PlaceOrderRequest): Promise<string> {
     logger.info('Placing order', order);
     
     // Generate proper UUID for order ID
     const orderId = generateOrderId();
     
     // TODO: Replace with actual API call to validator
-    return orderId;
+    return Promise.resolve(orderId);
   }
 
   /**
    * Connect to the validator service
    * @returns Promise that resolves when connected
    */
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
     logger.info('Connecting to validator', { endpoint: this._config.validatorEndpoint });
     // TODO: Implement actual connection logic
     this._isConnected = true;
     logger.info('Connected to validator');
+    return Promise.resolve();
   }
 
   /**
@@ -131,9 +132,10 @@ export class ValidatorClient implements OmniValidatorClient {
    * Close the client connection and cleanup resources
    * @returns Promise that resolves when client is closed
    */
-  async close(): Promise<void> {
+  close(): Promise<void> {
     this._isConnected = false;
     logger.info('Validator client connection closed');
+    return Promise.resolve();
   }
 }
 

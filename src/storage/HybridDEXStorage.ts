@@ -87,19 +87,33 @@ export interface StorageTier {
   cold: 'ipfs';
 }
 
+/**
+ * Statistics for each storage tier
+ */
 export interface StorageStats {
+  /** Hot storage tier statistics */
   hot: {
+    /** Number of items in memory cache */
     inMemory: number;
+    /** Number of items in Redis cache */
     redis: number;
   };
+  /** Warm storage tier statistics */
   warm: {
+    /** Number of items in PostgreSQL database */
     postgresql: number;
   };
+  /** Cold storage tier statistics */
   cold: {
+    /** Number of items in IPFS storage */
     ipfs: number;
   };
 }
 
+/**
+ * Hybrid storage implementation with multi-tier architecture for DEX operations
+ * Provides hot (memory/Redis), warm (PostgreSQL), and cold (IPFS) storage tiers
+ */
 export class HybridDEXStorage extends EventEmitter {
   private config: StorageConfig;
   
@@ -118,6 +132,10 @@ export class HybridDEXStorage extends EventEmitter {
   private syncInterval?: ReturnType<typeof setInterval>;
   private isInitialized = false;
 
+  /**
+   * Create a new hybrid storage instance
+   * @param config - Storage configuration for all tiers
+   */
   constructor(config: StorageConfig) {
     super();
     this.config = config;
@@ -137,7 +155,7 @@ export class HybridDEXStorage extends EventEmitter {
     let hasIPFS = false;
 
     // Initialize Redis (hot tier) - optional
-    if (this.config.redis.host) {
+    if (this.config.redis.host !== '' && this.config.redis.host !== null && this.config.redis.host !== undefined) {
       try {
         await this.initializeRedis();
         hasRedis = true;
@@ -147,7 +165,7 @@ export class HybridDEXStorage extends EventEmitter {
     }
     
     // Initialize PostgreSQL/YugabyteDB (warm tier) - optional but recommended
-    if (this.config.postgresql.host) {
+    if (this.config.postgresql.host !== '' && this.config.postgresql.host !== null && this.config.postgresql.host !== undefined) {
       try {
         await this.initializePostgreSQL();
         hasPostgreSQL = true;
@@ -157,7 +175,7 @@ export class HybridDEXStorage extends EventEmitter {
     }
     
     // Initialize IPFS (cold tier) - optional
-    if (this.config.ipfs.host) {
+    if (this.config.ipfs.host !== '' && this.config.ipfs.host !== null && this.config.ipfs.host !== undefined) {
       try {
         await this.initializeIPFS();
         hasIPFS = true;
@@ -193,8 +211,8 @@ export class HybridDEXStorage extends EventEmitter {
         host: this.config.redis.host,
         port: this.config.redis.port
       },
-      ...(this.config.redis.password ? { password: this.config.redis.password } : {}),
-      ...(this.config.redis.db ? { database: this.config.redis.db } : {})
+      ...(this.config.redis.password !== undefined && this.config.redis.password !== null && this.config.redis.password !== '' ? { password: this.config.redis.password } : {}),
+      ...(this.config.redis.db !== undefined && this.config.redis.db !== null && this.config.redis.db !== 0 ? { database: this.config.redis.db } : {})
     });
 
     this.redis.on('error', (err: Error) => {
@@ -216,7 +234,7 @@ export class HybridDEXStorage extends EventEmitter {
       database: this.config.postgresql.database,
       user: this.config.postgresql.user,
       password: this.config.postgresql.password,
-      max: this.config.postgresql.max || 20
+      max: this.config.postgresql.max !== undefined && this.config.postgresql.max !== null && this.config.postgresql.max !== 0 ? this.config.postgresql.max : 20
     });
 
     // Test connection
@@ -351,7 +369,11 @@ export class HybridDEXStorage extends EventEmitter {
 
     for (const query of queries) {
       try {
-        await this.postgresql!.query(query);
+        if (this.postgresql !== undefined && this.postgresql !== null) {
+          await this.postgresql.query(query);
+        } else {
+          throw new Error('PostgreSQL client not initialized');
+        }
       } catch (error) {
         logger.error('Error creating schema:', error);
         throw error;
@@ -363,6 +385,7 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Place an order using hybrid storage
+   * @param order - The unified order to place in storage
    */
   async placeOrder(order: UnifiedOrder): Promise<void> {
     // 1. Write to hot storage immediately
@@ -379,6 +402,7 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Write to hot storage (memory + Redis)
+   * @param order - The unified order to write to hot storage
    */
   private async writeToHotStorage(order: UnifiedOrder): Promise<void> {
     // Always use in-memory cache
@@ -388,7 +412,7 @@ export class HybridDEXStorage extends EventEmitter {
     this.updateOrderBookCache(order);
     
     // Use Redis if available for distributed caching
-    if (this.redis) {
+    if (this.redis !== null && this.redis !== undefined) {
       try {
         const key = `order:${order.id}`;
         const value = JSON.stringify(order);
@@ -398,7 +422,7 @@ export class HybridDEXStorage extends EventEmitter {
         
         // Add to sorted sets for efficient queries
         await this.redis.zAdd(`orders:${order.pair}:${order.side}`, {
-          score: parseFloat(order.price || '0'),
+          score: parseFloat(order.price !== undefined && order.price !== null && order.price !== '' ? order.price : '0'),
           value: order.id
         });
         
@@ -414,9 +438,10 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Write to warm storage (PostgreSQL)
+   * @param order - The unified order to write to warm storage
    */
   private async writeToWarmStorage(order: UnifiedOrder): Promise<void> {
-    if (!this.postgresql) return;
+    if (this.postgresql === null || this.postgresql === undefined) return;
 
     const query = `
       INSERT INTO orders (
@@ -440,11 +465,11 @@ export class HybridDEXStorage extends EventEmitter {
       order.side,
       order.pair,
       toWei(order.quantity).toString(),
-      order.price ? toWei(order.price).toString() : null,
+      order.price !== undefined && order.price !== null && order.price !== '' ? toWei(order.price).toString() : null,
       order.status,
       toWei(order.filled).toString(),
       toWei(order.remaining).toString(),
-      order.averagePrice ? toWei(order.averagePrice).toString() : null,
+      order.averagePrice !== undefined && order.averagePrice !== null && order.averagePrice !== '' ? toWei(order.averagePrice).toString() : null,
       toWei(order.fees).toString(),
       new Date(order.timestamp),
       new Date(order.updatedAt)
@@ -455,16 +480,19 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Get order book from hybrid storage
+   * @param pair - Trading pair symbol
+   * @param depth - Maximum number of order book levels to return
+   * @returns Promise resolving to the order book data
    */
   async getOrderBook(pair: string, depth: number = 20): Promise<OrderBook> {
     // 1. Try hot storage first (in-memory cache)
     const cached = this.orderBookCache.get(pair);
-    if (cached && Date.now() - cached.timestamp < 1000) {
+    if (cached !== null && cached !== undefined && Date.now() - cached.timestamp < 1000) {
       return cached;
     }
 
     // 2. Try Redis if available
-    if (this.redis) {
+    if (this.redis !== null && this.redis !== undefined) {
       try {
         const bids = await this.redis.zRangeWithScores(
           `orders:${pair}:BUY`,
@@ -481,12 +509,16 @@ export class HybridDEXStorage extends EventEmitter {
 
         const orderBook: OrderBook = {
           pair,
-          bids: bids.map((b: { value: string; score: number }) => ({
+          bids: bids.map((b: { /** Order ID */
+          value: string; /** Price score */
+          score: number }) => ({
             price: b.score.toString(),
             quantity: '0', // Will be aggregated
             orders: 1
           })),
-          asks: asks.map((a: { value: string; score: number }) => ({
+          asks: asks.map((a: { /** Order ID */
+          value: string; /** Price score */
+          score: number }) => ({
             price: a.score.toString(),
             quantity: '0',
             orders: 1
@@ -512,9 +544,12 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Get order book from PostgreSQL
+   * @param pair - Trading pair symbol
+   * @param depth - Maximum number of order book levels to return
+   * @returns Promise resolving to the order book data from PostgreSQL
    */
   private async getOrderBookFromWarmStorage(pair: string, depth: number): Promise<OrderBook> {
-    if (!this.postgresql) {
+    if (this.postgresql === null || this.postgresql === undefined) {
       // Return empty order book if no warm storage
       return {
         pair,
@@ -551,16 +586,32 @@ export class HybridDEXStorage extends EventEmitter {
     const result = await this.postgresql.query(query, [pair, depth]);
     
     const bids = result.rows
-      .filter((r: { side: string; price: string; quantity: string; order_count: string }) => r.side === 'BUY')
-      .map((r: { side: string; price: string; quantity: string; order_count: string }) => ({
+      .filter((r: { /** Order side (BUY/SELL) */
+      side: string; /** Order price */
+      price: string; /** Aggregated quantity */
+      quantity: string; /** Number of orders at this level */
+      order_count: string }) => r.side === 'BUY')
+      .map((r: { /** Order side (BUY/SELL) */
+      side: string; /** Order price */
+      price: string; /** Aggregated quantity */
+      quantity: string; /** Number of orders at this level */
+      order_count: string }) => ({
         price: fromWei(r.price),
         quantity: fromWei(r.quantity),
         orders: parseInt(r.order_count)
       }));
       
     const asks = result.rows
-      .filter((r: { side: string; price: string; quantity: string; order_count: string }) => r.side === 'SELL')
-      .map((r: { side: string; price: string; quantity: string; order_count: string }) => ({
+      .filter((r: { /** Order side (BUY/SELL) */
+      side: string; /** Order price */
+      price: string; /** Aggregated quantity */
+      quantity: string; /** Number of orders at this level */
+      order_count: string }) => r.side === 'SELL')
+      .map((r: { /** Order side (BUY/SELL) */
+      side: string; /** Order price */
+      price: string; /** Aggregated quantity */
+      quantity: string; /** Number of orders at this level */
+      order_count: string }) => ({
         price: fromWei(r.price),
         quantity: fromWei(r.quantity),
         orders: parseInt(r.order_count)
@@ -580,14 +631,15 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Update order book cache
+   * @param order - The unified order to update in cache
    */
   private updateOrderBookCache(order: UnifiedOrder): void {
     const orderBook = this.orderBookCache.get(order.pair);
-    if (!orderBook) return;
+    if (orderBook === null || orderBook === undefined) return;
 
     // This is simplified - real implementation would properly aggregate
     const level = {
-      price: order.price || '0',
+      price: order.price !== undefined && order.price !== null && order.price !== '' ? order.price : '0',
       quantity: order.remaining,
       orders: 1
     };
@@ -605,10 +657,11 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Schedule order archival to IPFS
+   * @param order - The unified order to schedule for archival
    */
   private scheduleArchival(order: UnifiedOrder): void {
     // Only schedule archival if IPFS is available
-    if (this.ipfs && this.config.archival.threshold > 0) {
+    if (this.ipfs !== null && this.ipfs !== undefined && this.config.archival.threshold > 0) {
       setTimeout(() => {
         this.archiveToIPFS(order).catch(err => {
           logger.error('Failed to archive order:', err);
@@ -619,9 +672,11 @@ export class HybridDEXStorage extends EventEmitter {
 
   /**
    * Archive to IPFS
+   * @param order - The unified order to archive
+   * @returns Promise resolving to the IPFS CID of the archived order
    */
   private async archiveToIPFS(order: UnifiedOrder): Promise<string> {
-    if (!this.ipfs) {
+    if (this.ipfs === null || this.ipfs === undefined) {
       throw new Error('IPFS not initialized');
     }
 
@@ -631,7 +686,7 @@ export class HybridDEXStorage extends EventEmitter {
     const cid = result.cid.toString();
 
     // Update PostgreSQL with IPFS CID
-    if (this.postgresql) {
+    if (this.postgresql !== null && this.postgresql !== undefined) {
       await this.postgresql.query(
         'UPDATE orders SET ipfs_cid = $1 WHERE id = $2',
         [cid, order.id]
@@ -640,7 +695,7 @@ export class HybridDEXStorage extends EventEmitter {
 
     // Remove from hot storage
     this.activeOrders.delete(order.id);
-    if (this.redis) {
+    if (this.redis !== null && this.redis !== undefined) {
       await this.redis.del(`order:${order.id}`);
     }
 
@@ -668,7 +723,7 @@ export class HybridDEXStorage extends EventEmitter {
     // For now, just ensure consistency between Redis and PostgreSQL
     
     // Example: Move old data from warm to cold storage
-    if (this.postgresql && this.ipfs) {
+    if (this.postgresql !== null && this.postgresql !== undefined && this.ipfs !== null && this.ipfs !== undefined) {
       const query = `
         SELECT * FROM orders 
         WHERE created_at < NOW() - INTERVAL '${this.config.archival.threshold} days'
@@ -677,7 +732,7 @@ export class HybridDEXStorage extends EventEmitter {
       `;
       
       const result = await this.postgresql.query(query);
-      for (const row of result.rows) {
+      for (const row of result.rows as UnifiedOrder[]) {
         await this.archiveToIPFS(row);
       }
     }
@@ -689,15 +744,15 @@ export class HybridDEXStorage extends EventEmitter {
   async shutdown(): Promise<void> {
     logger.info('Shutting down hybrid storage...');
 
-    if (this.syncInterval) {
+    if (this.syncInterval !== null && this.syncInterval !== undefined) {
       clearInterval(this.syncInterval);
     }
 
-    if (this.redis) {
+    if (this.redis !== null && this.redis !== undefined) {
       await this.redis.quit();
     }
 
-    if (this.postgresql) {
+    if (this.postgresql !== null && this.postgresql !== undefined) {
       await this.postgresql.end();
     }
 
@@ -705,20 +760,38 @@ export class HybridDEXStorage extends EventEmitter {
   }
 
   /**
+   * Get PostgreSQL order count safely
+   * @returns Promise resolving to the number of orders in PostgreSQL
+   */
+  private async getPostgreSQLCount(): Promise<number> {
+    if (this.postgresql === null || this.postgresql === undefined) {
+      return 0;
+    }
+
+    try {
+      const result = await this.postgresql.query('SELECT COUNT(*) FROM orders');
+      const row = result.rows[0] as { count: string } | undefined;
+      return Number(row?.count ?? 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * Get storage statistics
+   * @returns Promise resolving to storage statistics for all tiers
    */
   async getStats(): Promise<StorageStats> {
     return {
       hot: {
         inMemory: this.activeOrders.size,
-        redis: this.redis ? await this.redis.dbSize() : 0
+        redis: this.redis !== null && this.redis !== undefined ? await this.redis.dbSize() : 0
       },
       warm: {
-        postgresql: this.postgresql ? 
-          (await this.postgresql.query('SELECT COUNT(*) FROM orders')).rows[0].count : 0
+        postgresql: await this.getPostgreSQLCount()
       },
       cold: {
-        ipfs: this.ipfs ? 1 : 0
+        ipfs: this.ipfs !== null && this.ipfs !== undefined ? 1 : 0
       }
     };
   }

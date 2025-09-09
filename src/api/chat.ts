@@ -73,6 +73,15 @@ interface P2PChatNetwork {
 }
 
 /**
+ * Request body for sending messages
+ */
+interface SendMessageBody {
+  content?: unknown;
+  channelId?: unknown;
+  messageType?: unknown;
+}
+
+/**
  * Create chat API routes for the unified validator DEX
  * Handles P2P messaging and communication
  * @param chat - P2P chat network implementation
@@ -96,39 +105,51 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
       body('channelId').isString().notEmpty(),
       body('messageType').optional().isIn(['text', 'image', 'file'])
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          return res.status(400).json({
-            error: 'Validation failed',
-            details: errors.array()
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const errors = validationResult(req);
+          if (!errors.isEmpty()) {
+            res.status(400).json({
+              error: 'Validation failed',
+              details: errors.array()
+            });
+            return;
+          }
+
+          const body = req.body as SendMessageBody;
+          const userIdHeader = req.headers['x-user-id'] as string | undefined;
+          
+          const message: ChatMessage = {
+            content: body.content as string,
+            channelId: body.channelId as string,
+            messageType: (body.messageType as 'text' | 'image' | 'file' | undefined) ?? 'text',
+            userId: (userIdHeader !== undefined && userIdHeader !== '') ? userIdHeader : 'anonymous',
+            timestamp: Date.now()
+          };
+
+          const result = await chat.sendMessage(message);
+
+          res.status(201).json({
+            success: result.success,
+            messageId: result.messageId,
+            timestamp: result.timestamp
+          });
+
+        } catch (error) {
+          logger.error('Error sending message:', error);
+          res.status(500).json({
+            error: 'Failed to send message',
+            message: error instanceof Error ? error.message : 'Unknown error'
           });
         }
-
-        const message: ChatMessage = {
-          content: req.body.content,
-          channelId: req.body.channelId,
-          messageType: req.body.messageType || 'text',
-          userId: req.headers['x-user-id'] as string || 'anonymous',
-          timestamp: Date.now()
-        };
-
-        const result = await chat.sendMessage(message);
-
-        return res.status(201).json({
-          success: result.success,
-          messageId: result.messageId,
-          timestamp: result.timestamp
-        });
-
-      } catch (error) {
+      }).catch((error) => {
         logger.error('Error sending message:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to send message',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -142,28 +163,45 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
       query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
       query('offset').optional().isInt({ min: 0 }).toInt()
     ],
-    async (req: Request, res: Response) => {
-      try {
-        const { channelId } = req.params;
-        const limit = parseInt(req.query['limit'] as string) || 50;
-        const offset = parseInt(req.query['offset'] as string) || 0;
+    (req: Request, res: Response): void => {
+      Promise.resolve().then(async () => {
+        try {
+          const { channelId } = req.params;
+          const limitParam = req.query['limit'] as string;
+          const offsetParam = req.query['offset'] as string;
+          const limit = (limitParam !== undefined && parseInt(limitParam) > 0) ? parseInt(limitParam) : 50;
+          const offset = (offsetParam !== undefined && parseInt(offsetParam) >= 0) ? parseInt(offsetParam) : 0;
 
-        const messages = await chat.getMessages(channelId || '', limit, offset);
+          if (channelId === undefined || channelId === '') {
+            res.status(400).json({
+              error: 'Channel ID is required'
+            });
+            return;
+          }
 
-        return res.json({
-          channelId,
-          messages,
-          limit,
-          offset
-        });
+          const messages = await chat.getMessages(channelId, limit, offset);
 
-      } catch (error) {
+          res.json({
+            channelId,
+            messages,
+            limit,
+            offset
+          });
+
+        } catch (error) {
+          logger.error('Error getting messages:', error);
+          res.status(500).json({
+            error: 'Failed to get messages',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }).catch((error) => {
         logger.error('Error getting messages:', error);
-        return res.status(500).json({
+        res.status(500).json({
           error: 'Failed to get messages',
           message: error instanceof Error ? error.message : 'Unknown error'
         });
-      }
+      });
     }
   );
 
@@ -171,17 +209,25 @@ export function createChatRoutes(chat: P2PChatNetwork): Router {
    * Get chat health status
    * GET /api/v1/chat/health
    */
-  router.get('/health', async (_req: Request, res: Response) => {
-    try {
-      const health = await chat.getHealthStatus();
-      return res.json(health);
-    } catch (error) {
+  router.get('/health', (_req: Request, res: Response): void => {
+    Promise.resolve().then(async () => {
+      try {
+        const health = await chat.getHealthStatus();
+        res.json(health);
+      } catch (error) {
+        logger.error('Error getting chat health:', error);
+        res.status(500).json({
+          error: 'Failed to get chat health',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }).catch((error) => {
       logger.error('Error getting chat health:', error);
-      return res.status(500).json({
+      res.status(500).json({
         error: 'Failed to get chat health',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
-    }
+    });
   });
 
   return router;

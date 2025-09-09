@@ -5,8 +5,7 @@ import { dexClient } from '../../src/services/dex/api/dexClient';
 
 /**
  * End-to-End User Flow Tests
- * 
- * These tests simulate real user interactions with the DEX through the UI
+ * @file These tests simulate real user interactions with the DEX through the UI
  */
 describe('DEX End-to-End User Flows', function() {
   this.timeout(60000); // 1 minute timeout for E2E tests
@@ -20,7 +19,10 @@ describe('DEX End-to-End User Flows', function() {
     privateKey: '0x0123456789012345678901234567890123456789012345678901234567890123',
   };
 
-  before(async () => {
+  /**
+   * Set up browser and test environment
+   */
+  before(async (): Promise<void> => {
     // Launch browser
     browser = await puppeteer.launch({
       headless: process.env.HEADLESS !== 'false',
@@ -38,7 +40,7 @@ describe('DEX End-to-End User Flows', function() {
       (window as any).ethereum = {
         isMetaMask: true,
         selectedAddress: wallet.address,
-        request: async ({ method, params }: any) => {
+        request: ({ method, params }: any) => {
           switch (method) {
             case 'eth_requestAccounts':
               return [wallet.address];
@@ -58,13 +60,19 @@ describe('DEX End-to-End User Flows', function() {
     }, TEST_WALLET);
   });
 
-  after(async () => {
+  /**
+   * Clean up browser after all tests
+   */
+  after(async (): Promise<void> => {
     if (browser) {
       await browser.close();
     }
   });
 
-  beforeEach(async () => {
+  /**
+   * Navigate to DEX page before each test
+   */
+  beforeEach(async (): Promise<void> => {
     // Navigate to DEX page
     await page.goto(`${TEST_URL}/dex/trading`, { 
       waitUntil: 'networkidle2' 
@@ -72,7 +80,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Wallet Connection Flow', () => {
-    it('should connect wallet successfully', async () => {
+    /**
+     * Tests successful wallet connection
+     */
+    it('should connect wallet successfully', async (): Promise<void> => {
       // Click connect wallet button
       const connectButton = await page.$('button:has-text("Connect Wallet")');
       if (connectButton) {
@@ -99,7 +110,10 @@ describe('DEX End-to-End User Flows', function() {
       }
     });
 
-    it('should display user balances after connection', async () => {
+    /**
+     * Tests display of user balances after wallet connection
+     */
+    it('should display user balances after connection', async (): Promise<void> => {
       // Wait for balances to load
       await page.waitForSelector('[data-testid="balance-eth"]', { timeout: 10000 });
       
@@ -118,7 +132,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Token Swap Flow', () => {
-    it('should complete a token swap', async () => {
+    /**
+     * Tests complete token swap flow
+     */
+    it('should complete a token swap', async (): Promise<void> => {
       // Navigate to swap page
       await page.goto(`${TEST_URL}/dex/swap`, { waitUntil: 'networkidle2' });
       
@@ -183,7 +200,10 @@ describe('DEX End-to-End User Flows', function() {
       expect(successMessage).to.include('Swap successful');
     });
 
-    it('should handle insufficient balance', async () => {
+    /**
+     * Tests handling of insufficient balance scenario
+     */
+    it('should handle insufficient balance', async (): Promise<void> => {
       await page.goto(`${TEST_URL}/dex/swap`, { waitUntil: 'networkidle2' });
       
       // Enter large amount
@@ -200,7 +220,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Limit Order Flow', () => {
-    it('should place a limit buy order', async () => {
+    /**
+     * Tests placing a limit buy order
+     */
+    it('should place a limit buy order', async (): Promise<void> => {
       // Ensure on trading page
       await page.goto(`${TEST_URL}/dex/trading`, { waitUntil: 'networkidle2' });
       
@@ -246,7 +269,10 @@ describe('DEX End-to-End User Flows', function() {
       expect(orderDetails).to.include('2,400.00');
     });
 
-    it('should cancel an open order', async () => {
+    /**
+     * Tests canceling an open order
+     */
+    it('should cancel an open order', async (): Promise<void> => {
       // Assuming order exists from previous test
       await page.waitForSelector('[data-testid="open-orders-table"]');
       
@@ -269,7 +295,10 @@ describe('DEX End-to-End User Flows', function() {
       );
     });
 
-    it('should place a stop-limit order', async () => {
+    /**
+     * Tests placing a stop-limit order
+     */
+    it('should place a stop-limit order', async (): Promise<void> => {
       // Select stop-limit order type
       await page.click('[data-testid="order-type-stop-limit"]');
       
@@ -293,7 +322,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Market Order Flow', () => {
-    it('should execute market buy order', async () => {
+    /**
+     * Tests executing a market buy order
+     */
+    it('should execute market buy order', async (): Promise<void> => {
       // Select market order type
       await page.click('[data-testid="order-type-market"]');
       
@@ -333,7 +365,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Order Book Interaction', () => {
-    it('should fill order form by clicking order book', async () => {
+    /**
+     * Tests filling order form by clicking order book
+     */
+    it('should fill order form by clicking order book', async (): Promise<void> => {
       // Wait for order book to load
       await page.waitForSelector('[data-testid="order-book"]', { timeout: 10000 });
       
@@ -358,7 +393,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Chart Interaction', () => {
-    it('should change chart timeframe', async () => {
+    /**
+     * Tests changing chart timeframe
+     */
+    it('should change chart timeframe', async (): Promise<void> => {
       // Wait for chart to load
       await page.waitForSelector('[data-testid="price-chart"]', { timeout: 10000 });
       
@@ -389,7 +427,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Trading Pair Selection', () => {
-    it('should switch trading pairs', async () => {
+    /**
+     * Tests switching trading pairs
+     */
+    it('should switch trading pairs', async (): Promise<void> => {
       // Click pair selector
       await page.click('[data-testid="pair-selector"]');
       
@@ -421,7 +462,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Mobile Responsive Flow', () => {
-    it('should work on mobile viewport', async () => {
+    /**
+     * Tests functionality on mobile viewport
+     */
+    it('should work on mobile viewport', async (): Promise<void> => {
       // Set mobile viewport
       await page.setViewport({ width: 375, height: 667 });
       
@@ -448,7 +492,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Error Recovery Flow', () => {
-    it('should handle network disconnection gracefully', async () => {
+    /**
+     * Tests graceful handling of network disconnection
+     */
+    it('should handle network disconnection gracefully', async (): Promise<void> => {
       // Simulate offline
       await page.setOfflineMode(true);
       
@@ -471,10 +518,13 @@ describe('DEX End-to-End User Flows', function() {
       await page.waitForSelector('[data-testid="network-connected"]', { timeout: 10000 });
     });
 
-    it('should handle transaction failures', async () => {
+    /**
+     * Tests handling of transaction failures
+     */
+    it('should handle transaction failures', async (): Promise<void> => {
       // Mock transaction failure
       await page.evaluateOnNewDocument(() => {
-        (window as any).ethereum.request = async ({ method }: any) => {
+        (window as any).ethereum.request = ({ method }: any) => {
           if (method === 'eth_sendTransaction') {
             throw new Error('User denied transaction');
           }
@@ -499,7 +549,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Accessibility Tests', () => {
-    it('should be keyboard navigable', async () => {
+    /**
+     * Tests keyboard navigation
+     */
+    it('should be keyboard navigable', async (): Promise<void> => {
       // Tab through elements
       await page.keyboard.press('Tab');
       
@@ -519,7 +572,10 @@ describe('DEX End-to-End User Flows', function() {
       // (specific assertion depends on which element was focused)
     });
 
-    it('should have proper ARIA labels', async () => {
+    /**
+     * Tests proper ARIA labels for accessibility
+     */
+    it('should have proper ARIA labels', async (): Promise<void> => {
       const elements = await page.$$eval('[aria-label]', els => 
         els.map(el => ({
           tag: el.tagName,
@@ -535,7 +591,10 @@ describe('DEX End-to-End User Flows', function() {
   });
 
   describe('Performance Tests', () => {
-    it('should load trading page within acceptable time', async () => {
+    /**
+     * Tests trading page load performance
+     */
+    it('should load trading page within acceptable time', async (): Promise<void> => {
       const startTime = Date.now();
       
       await page.goto(`${TEST_URL}/dex/trading`, { 
@@ -550,12 +609,16 @@ describe('DEX End-to-End User Flows', function() {
       ]);
       
       const loadTime = Date.now() - startTime;
+      // eslint-disable-next-line no-console
       console.log(`Page load time: ${loadTime}ms`);
       
       expect(loadTime).to.be.lte(5000); // 5 seconds max
     });
 
-    it('should handle rapid order placement', async () => {
+    /**
+     * Tests performance of rapid order placement
+     */
+    it('should handle rapid order placement', async (): Promise<void> => {
       const orderCount = 5;
       const orders = [];
       
@@ -575,6 +638,7 @@ describe('DEX End-to-End User Flows', function() {
       }
       
       const avgTime = orders.reduce((a, b) => a + b) / orders.length;
+      // eslint-disable-next-line no-console
       console.log(`Average order placement time: ${avgTime}ms`);
       
       expect(avgTime).to.be.lte(2000); // 2 seconds average

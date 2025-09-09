@@ -17,7 +17,7 @@ import * as crypto from 'crypto';
 export function generateUUID(): string {
   // In browser environment, use crypto.randomUUID()
   // In Node.js, it's also available in crypto module
-  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+  if (typeof window !== 'undefined' && typeof window.crypto?.randomUUID === 'function') {
     return window.crypto.randomUUID();
   }
   return crypto.randomUUID();
@@ -75,6 +75,11 @@ export function isValidUUID(id: string): boolean {
  * Useful for preventing duplicate orders
  * 
  * @param params - Order parameters to hash
+ * @param params.maker - The maker address
+ * @param params.tokenPair - The trading pair identifier
+ * @param params.price - The order price as string
+ * @param params.amount - The order amount as string
+ * @param params.nonce - The nonce value for uniqueness
  * @returns A deterministic UUID-like string
  */
 export function generateDeterministicOrderId(params: {

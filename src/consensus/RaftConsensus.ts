@@ -8,6 +8,9 @@
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 
+/**
+ * Raft node state enumeration
+ */
 export enum NodeState {
   FOLLOWER = 'FOLLOWER',
   CANDIDATE = 'CANDIDATE',
@@ -53,26 +56,49 @@ interface ConsensusStatus {
   lastApplied: number;
 }
 
+/**
+ * Raft cluster node configuration
+ */
 export interface RaftNode {
+  /** Unique node identifier */
   id: string;
+  /** Network address */
   address: string;
+  /** Network port */
   port: number;
 }
 
+/**
+ * Raft log entry structure
+ */
 export interface LogEntry {
+  /** Raft term when entry was created */
   term: number;
+  /** Log entry index */
   index: number;
+  /** Command to execute */
   command: RaftCommand;
+  /** Entry creation timestamp */
   timestamp: number;
 }
 
+/**
+ * Raft consensus configuration
+ */
 export interface RaftConfig {
+  /** Current node identifier */
   nodeId: string;
+  /** List of cluster nodes */
   nodes: RaftNode[];
-  electionTimeout: number; // milliseconds
-  heartbeatInterval: number; // milliseconds
+  /** Election timeout in milliseconds */
+  electionTimeout: number;
+  /** Heartbeat interval in milliseconds */
+  heartbeatInterval: number;
 }
 
+/**
+ * Raft consensus implementation for distributed order book state
+ */
 export class RaftConsensus extends EventEmitter {
   private config: RaftConfig;
   private state: NodeState = NodeState.FOLLOWER;
@@ -90,6 +116,10 @@ export class RaftConsensus extends EventEmitter {
   private electionTimer?: ReturnType<typeof setTimeout>;
   private heartbeatTimer?: ReturnType<typeof setTimeout>;
   
+  /**
+   * Creates a new RaftConsensus instance
+   * @param config - Raft configuration settings
+   */
   constructor(config: RaftConfig) {
     super();
     this.config = config;
@@ -98,12 +128,13 @@ export class RaftConsensus extends EventEmitter {
 
   /**
    * Get current leader state
+   * @returns Promise resolving to current leader state
    */
   async getLeaderState(): Promise<LeaderState> {
     if (this.state !== NodeState.LEADER) {
       // Forward to leader
       const leader = await this.findLeader();
-      if (leader) {
+      if (leader !== null) {
         return this.forwardToLeader(leader, 'getState') as Promise<LeaderState>;
       }
       throw new Error('No leader available');
@@ -119,11 +150,13 @@ export class RaftConsensus extends EventEmitter {
 
   /**
    * Propose a new command (only leader can accept)
+   * @param command - The command to propose for consensus
+   * @returns Promise resolving to true if command was committed
    */
   async proposeCommand(command: RaftCommand): Promise<boolean> {
     if (this.state !== NodeState.LEADER) {
       const leader = await this.findLeader();
-      if (leader) {
+      if (leader !== null) {
         return this.forwardToLeader(leader, 'propose', command) as Promise<boolean>;
       }
       return false;
@@ -155,7 +188,7 @@ export class RaftConsensus extends EventEmitter {
    * Start election timeout
    */
   private resetElectionTimer(): void {
-    if (this.electionTimer) {
+    if (this.electionTimer !== undefined) {
       clearTimeout(this.electionTimer);
     }
     
@@ -164,7 +197,7 @@ export class RaftConsensus extends EventEmitter {
       Math.floor(Math.random() * this.config.electionTimeout);
     
     this.electionTimer = setTimeout(() => {
-      this.startElection();
+      void this.startElection();
     }, timeout);
   }
 
@@ -204,15 +237,17 @@ export class RaftConsensus extends EventEmitter {
 
   /**
    * Request vote from another node
+   * @param node - The node to request a vote from
+   * @returns Promise resolving to true if vote was granted
    */
-  private async requestVote(node: RaftNode): Promise<boolean> {
+  private requestVote(node: RaftNode): Promise<boolean> {
     // This would make an RPC call to the other node
     // For now, simulate with random response
     const granted = Math.random() > 0.3;
     
     logger.debug(`Vote request to ${node.id}: ${granted ? 'granted' : 'denied'}`);
     
-    return granted;
+    return Promise.resolve(granted);
   }
 
   /**
@@ -231,7 +266,7 @@ export class RaftConsensus extends EventEmitter {
     }
     
     // Stop election timer
-    if (this.electionTimer) {
+    if (this.electionTimer !== undefined) {
       clearTimeout(this.electionTimer);
     }
     
@@ -246,7 +281,7 @@ export class RaftConsensus extends EventEmitter {
     this.state = NodeState.FOLLOWER;
     this.votedFor = null;
     
-    if (this.heartbeatTimer) {
+    if (this.heartbeatTimer !== undefined) {
       clearTimeout(this.heartbeatTimer);
     }
     
@@ -262,7 +297,7 @@ export class RaftConsensus extends EventEmitter {
     // Send AppendEntries RPC to each follower
     for (const node of this.config.nodes) {
       if (node.id !== this.config.nodeId) {
-        this.sendAppendEntries(node);
+        void this.sendAppendEntries(node);
       }
     }
     
@@ -274,11 +309,12 @@ export class RaftConsensus extends EventEmitter {
 
   /**
    * Send AppendEntries RPC
+   * @param node - Target node to send entries to
    */
   private async sendAppendEntries(node: RaftNode): Promise<void> {
-    const nextIdx = this.nextIndex.get(node.id) || 0;
+    const nextIdx = this.nextIndex.get(node.id) ?? 0;
     const prevLogIndex = nextIdx - 1;
-    const prevLogTerm = prevLogIndex >= 0 ? this.log[prevLogIndex]!.term : 0;
+    const prevLogTerm = prevLogIndex >= 0 && this.log[prevLogIndex] !== undefined ? this.log[prevLogIndex].term : 0;
     
     const entries = this.log.slice(nextIdx);
     
@@ -306,15 +342,20 @@ export class RaftConsensus extends EventEmitter {
 
   /**
    * Simulate AppendEntries RPC
+   * @param _node - Target node (unused in simulation)
+   * @param _data - AppendEntries data (unused in simulation)
+   * @returns Promise resolving to true if entries were accepted
    */
-  private async appendEntriesToNode(_node: RaftNode, _data: AppendEntriesData): Promise<boolean> {
+  private appendEntriesToNode(_node: RaftNode, _data: AppendEntriesData): Promise<boolean> {
     // This would make an actual RPC call
     // For now, simulate success
-    return Math.random() > 0.1;
+    return Promise.resolve(Math.random() > 0.1);
   }
 
   /**
    * Replicate entry to majority of nodes
+   * @param _entry - Log entry to replicate (unused in current implementation)
+   * @returns Promise resolving to true if majority accepted the entry
    */
   private async replicateEntry(_entry: LogEntry): Promise<boolean> {
     const replicationPromises = this.config.nodes
@@ -331,38 +372,46 @@ export class RaftConsensus extends EventEmitter {
 
   /**
    * Find current leader
+   * @returns Promise resolving to the current leader node or null if none found
    */
-  private async findLeader(): Promise<RaftNode | null> {
+  private findLeader(): Promise<RaftNode | null> {
     // This would query other nodes to find the leader
     // For now, return null
-    return null;
+    return Promise.resolve(null);
   }
 
   /**
    * Forward request to leader
+   * @param leader - The leader node to forward to
+   * @param method - The method name to call on the leader
+   * @param _args - Arguments to pass (unused in simulation)
+   * @returns Promise resolving to the leader's response
    */
-  private async forwardToLeader(leader: RaftNode, method: string, ..._args: unknown[]): Promise<unknown> {
+  private forwardToLeader(leader: RaftNode, method: string, ..._args: unknown[]): Promise<unknown> {
     // This would make an RPC call to the leader
     logger.debug(`Forwarding ${method} to leader ${leader.id}`);
-    return null;
+    return Promise.resolve(null);
   }
 
   /**
    * Apply committed entries to state machine
+   * @returns Promise that resolves when all committed entries are applied
    */
-  async applyCommittedEntries(): Promise<void> {
+  applyCommittedEntries(): Promise<void> {
     while (this.lastApplied < this.commitIndex) {
       this.lastApplied++;
       const _entry = this.log[this.lastApplied];
       
-      if (_entry) {
+      if (_entry !== undefined) {
         this.emit('apply', _entry.command);
       }
     }
+    return Promise.resolve();
   }
 
   /**
    * Get consensus status
+   * @returns Current consensus status information
    */
   getStatus(): ConsensusStatus {
     return {
@@ -380,11 +429,11 @@ export class RaftConsensus extends EventEmitter {
    * Shutdown consensus
    */
   shutdown(): void {
-    if (this.electionTimer) {
+    if (this.electionTimer !== undefined) {
       clearTimeout(this.electionTimer);
     }
     
-    if (this.heartbeatTimer) {
+    if (this.heartbeatTimer !== undefined) {
       clearTimeout(this.heartbeatTimer);
     }
     

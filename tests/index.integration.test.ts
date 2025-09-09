@@ -1,7 +1,6 @@
 /**
  * DEX Index.ts Integration Tests
- * 
- * Tests for the main UnifiedValidatorDEX with real component integrations
+ * @file Tests for the main UnifiedValidatorDEX with real component integrations
  */
 
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
@@ -28,7 +27,10 @@ describe('UnifiedValidatorDEX Integration', () => {
   let feeService: FeeService;
   let blockReward: BlockRewardService;
 
-  beforeAll(async () => {
+  /**
+   * Set up test environment before all tests
+   */
+  beforeAll((): void => {
     // Set test environment variables
     process.env.NODE_ENV = 'test';
     process.env.PORT = '0'; // Use random port for testing
@@ -39,22 +41,42 @@ describe('UnifiedValidatorDEX Integration', () => {
     // For now, we'll test component initialization separately
   });
 
-  afterAll(async () => {
+  /**
+   * Clean up all components after all tests
+   */
+  afterAll(async (): Promise<void> => {
     // Cleanup all components
-    if (validatorClient) await validatorClient.disconnect();
-    if (orderBook) await orderBook.shutdown();
-    if (storage) await storage.shutdown();
-    if (chat) await chat.shutdown();
-    if (feeService) await feeService.shutdown();
-    if (blockReward) await blockReward.shutdown();
+    if (validatorClient) {
+      await validatorClient.disconnect();
+    }
+    if (orderBook) {
+      await orderBook.shutdown();
+    }
+    if (storage) {
+      await storage.shutdown();
+    }
+    if (chat) {
+      await chat.shutdown();
+    }
+    if (feeService) {
+      await feeService.shutdown();
+    }
+    if (blockReward) {
+      blockReward.shutdown();
+    }
     
     if (server) {
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
     }
   });
 
   describe('Component Initialization', () => {
-    it('should initialize ValidatorClient', async () => {
+    /**
+     * Tests ValidatorClient initialization
+     */
+    it('should initialize ValidatorClient', async (): Promise<void> => {
       validatorClient = new ValidatorClient({
         validatorEndpoint: process.env.VALIDATOR_API_URL || 'http://localhost:8080',
         wsEndpoint: process.env.VALIDATOR_WS_URL || 'ws://localhost:8080'
@@ -71,7 +93,10 @@ describe('UnifiedValidatorDEX Integration', () => {
       }
     });
 
-    it('should initialize BlockRewardService', async () => {
+    /**
+     * Tests BlockRewardService initialization
+     */
+    it('should initialize BlockRewardService', async (): Promise<void> => {
       blockReward = new BlockRewardService();
       await blockReward.initialize();
       
@@ -82,7 +107,10 @@ describe('UnifiedValidatorDEX Integration', () => {
       expect(typeof blockReward.distributeRewards).toBe('function');
     });
 
-    it('should initialize IPFSStorageNetwork', async () => {
+    /**
+     * Tests IPFSStorageNetwork initialization
+     */
+    it('should initialize IPFSStorageNetwork', async (): Promise<void> => {
       storage = new IPFSStorageNetwork({
         nodeId: 'test-node-' + Date.now(),
         bootstrapNodes: [
@@ -98,11 +126,15 @@ describe('UnifiedValidatorDEX Integration', () => {
         expect(storage.isRunning).toBe(true);
       } catch (error) {
         // IPFS might fail in test environment
+        // eslint-disable-next-line no-console
         console.log('IPFS initialization skipped in test environment');
       }
     });
 
-    it('should initialize P2PChatNetwork', async () => {
+    /**
+     * Tests P2PChatNetwork initialization
+     */
+    it('should initialize P2PChatNetwork', async (): Promise<void> => {
       chat = new P2PChatNetwork({
         nodeId: 'test-chat-' + Date.now(),
         port: 0, // Random port
@@ -116,11 +148,15 @@ describe('UnifiedValidatorDEX Integration', () => {
         expect(chat.isConnected).toBe(true);
       } catch (error) {
         // P2P might fail in test environment
+        // eslint-disable-next-line no-console
         console.log('P2P chat initialization skipped in test environment');
       }
     });
 
-    it('should initialize DecentralizedOrderBook', async () => {
+    /**
+     * Tests DecentralizedOrderBook initialization
+     */
+    it('should initialize DecentralizedOrderBook', async (): Promise<void> => {
       orderBook = new DecentralizedOrderBook();
       await orderBook.initialize();
       
@@ -131,7 +167,10 @@ describe('UnifiedValidatorDEX Integration', () => {
       expect(typeof orderBook.getOrderBook).toBe('function');
     });
 
-    it('should initialize FeeService', async () => {
+    /**
+     * Tests FeeService initialization
+     */
+    it('should initialize FeeService', async (): Promise<void> => {
       feeService = new FeeService({
         distributionInterval: 60000, // 1 minute for testing
         feeRecipients: {
@@ -151,7 +190,10 @@ describe('UnifiedValidatorDEX Integration', () => {
   });
 
   describe('Cross-Component Communication', () => {
-    it('should handle order placement through multiple components', async () => {
+    /**
+     * Tests order placement across multiple components
+     */
+    it('should handle order placement through multiple components', async (): Promise<void> => {
       // Initialize components
       orderBook = new DecentralizedOrderBook();
       await orderBook.initialize();
@@ -194,14 +236,17 @@ describe('UnifiedValidatorDEX Integration', () => {
         timestamp: Date.now()
       };
 
-      await feeService.recordTrade(trade);
+      feeService.recordTrade(trade);
 
       // Verify fee was recorded
       const fees = await feeService.getPendingFees();
       expect(fees).toBeGreaterThan(0);
     });
 
-    it('should emit and handle events between components', async () => {
+    /**
+     * Tests event emission and handling between components
+     */
+    it('should emit and handle events between components', async (): Promise<void> => {
       orderBook = new DecentralizedOrderBook();
       await orderBook.initialize();
 
@@ -234,7 +279,10 @@ describe('UnifiedValidatorDEX Integration', () => {
   });
 
   describe('API Endpoints with Real Components', () => {
-    it('should return correct health status', async () => {
+    /**
+     * Tests health status endpoint structure
+     */
+    it('should return correct health status', (): void => {
       // This would test the actual health endpoint
       // In a real test, we'd start the server and make requests
       
@@ -265,7 +313,10 @@ describe('UnifiedValidatorDEX Integration', () => {
       // expect(response.body).toMatchObject(expectedHealth);
     });
 
-    it('should return validator status', async () => {
+    /**
+     * Tests validator status endpoint structure
+     */
+    it('should return validator status', (): void => {
       // Mock validator status response structure
       const expectedStatus = {
         isUnifiedValidator: true,
@@ -301,7 +352,10 @@ describe('UnifiedValidatorDEX Integration', () => {
   });
 
   describe('Resource Usage Monitoring', () => {
-    it('should calculate resource usage correctly', async () => {
+    /**
+     * Tests resource usage calculation
+     */
+    it('should calculate resource usage correctly', (): void => {
       // Test the resource usage calculation
       // This would be part of the UnifiedValidatorDEX class
       
@@ -320,7 +374,10 @@ describe('UnifiedValidatorDEX Integration', () => {
   });
 
   describe('Graceful Shutdown', () => {
-    it('should shutdown all components properly', async () => {
+    /**
+     * Tests proper shutdown of all components
+     */
+    it('should shutdown all components properly', async (): Promise<void> => {
       // Initialize a component
       const testOrderBook = new DecentralizedOrderBook();
       await testOrderBook.initialize();

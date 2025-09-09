@@ -1,9 +1,33 @@
 /**
  * Jest setup file for DEX tests
+ * @file Configures Jest environment for DEX module testing
  */
 
-// Extend Jest matchers
+/**
+ * Custom matcher interface for Jest
+ */
+interface CustomMatchers<R = unknown> {
+  toBeValidOrderId(): R;
+}
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace jest {
+    interface Expect extends CustomMatchers {}
+    interface Matchers<R> extends CustomMatchers<R> {}
+    interface InverseAsymmetricMatchers extends CustomMatchers {}
+  }
+}
+
+/**
+ * Extends Jest matchers with custom validation functions
+ */
 expect.extend({
+  /**
+   * Validates if a received value is a valid order ID
+   * @param received - The value to validate
+   * @returns Jest matcher result
+   */
   toBeValidOrderId(received: string) {
     const pass = typeof received === 'string' && received.length > 0;
     if (pass) {
@@ -20,7 +44,9 @@ expect.extend({
   },
 });
 
-// Global test configuration
+/**
+ * Global test configuration - sets up test environment
+ */
 beforeAll(() => {
   // Set test environment variables
   process.env['NODE_ENV'] = 'test';
@@ -32,6 +58,9 @@ beforeAll(() => {
   process.env['REDIS_PORT'] = '6379';
 });
 
+/**
+ * Cleanup after all tests complete
+ */
 afterAll(() => {
   // Clean up test environment
 });
@@ -54,9 +83,16 @@ jest.mock('socket.io', () => ({
 }));
 
 // Suppress console.log during tests (except errors)
+// eslint-disable-next-line no-console
 const originalLog = console.log;
-console.log = (...args) => {
+/**
+ * Override console.log for test environment - only shows output when JEST_VERBOSE is true
+ * @param args - Arguments to log
+ */
+// eslint-disable-next-line no-console
+console.log = (...args: unknown[]): void => {
   if (process.env['JEST_VERBOSE'] === 'true') {
+    // eslint-disable-next-line no-console
     originalLog(...args);
   }
 };
