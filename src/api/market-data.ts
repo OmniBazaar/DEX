@@ -12,6 +12,7 @@
 import { Router, Request, Response } from 'express';
 import { param, query, validationResult } from 'express-validator';
 import { logger } from '../utils/logger';
+import { validatorDEX } from '../services/ValidatorDEXService';
 
 /**
  * Trading pair configuration and metadata
@@ -369,9 +370,58 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
    * GET /api/v1/market-data/tickers
    */
   router.get('/tickers', (_req: Request, res: Response): void => {
+    void (async () => {
     try {
-      // TODO: Add getAllTickers method to interface when implemented
-      const tickers: TickerData[] = [];
+      // Get all trading pairs from the DEX service
+      const pairs = validatorDEX.getTradingPairs();
+      
+      // Fetch market data for all pairs
+      const tickers: TickerData[] = await Promise.all(
+        pairs.map(async (pair) => {
+          try {
+            const marketData = await validatorDEX.getMarketData(pair);
+            
+            // Calculate quote volume (volume in quote currency)
+            const quoteVolume = (parseFloat(marketData.volume24h) * parseFloat(marketData.lastPrice)).toString();
+            
+            return {
+              symbol: pair,
+              lastPrice: parseFloat(marketData.lastPrice),
+              priceChange: parseFloat(marketData.priceChange24h),
+              priceChangePercent: parseFloat(marketData.priceChangePercent24h),
+              high24h: parseFloat(marketData.high24h),
+              low24h: parseFloat(marketData.low24h),
+              volume24h: parseFloat(marketData.volume24h),
+              quoteVolume24h: parseFloat(quoteVolume),
+              openPrice: parseFloat(marketData.lastPrice) - parseFloat(marketData.priceChange24h), // Calculate from price change
+              closePrice: parseFloat(marketData.lastPrice),
+              firstTradeId: 0, // Not available in current implementation
+              lastTradeId: 0, // Not available in current implementation
+              tradeCount: 0, // Not available in current implementation
+              timestamp: Date.now()
+            };
+          } catch (error) {
+            logger.warn(`Failed to get ticker for ${pair}:`, error);
+            // Return empty ticker for failed pairs
+            return {
+              symbol: pair,
+              lastPrice: 0,
+              priceChange: 0,
+              priceChangePercent: 0,
+              high24h: 0,
+              low24h: 0,
+              volume24h: 0,
+              quoteVolume24h: 0,
+              openPrice: 0,
+              closePrice: 0,
+              firstTradeId: 0,
+              lastTradeId: 0,
+              tradeCount: 0,
+              timestamp: Date.now()
+            };
+          }
+        })
+      );
 
       res.json(
         tickers.map((ticker: TickerData) => ({
@@ -394,6 +444,7 @@ export function createMarketDataRoutes(orderBook: DecentralizedOrderBook): Route
         message: error instanceof Error ? error.message : 'Unknown error'
       });
     }
+    })();
   });
 
   /**

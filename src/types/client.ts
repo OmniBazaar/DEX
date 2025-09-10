@@ -29,18 +29,39 @@ export interface HealthStatus {
   /** Status of individual services */
   services: {
     /** Order book service availability */
-    orderBook: boolean;
+    orderBook?: boolean;
     /** Trading service availability */
-    trading: boolean;
+    trading?: boolean;
     /** Storage service availability */
-    storage: boolean;
+    storage?: boolean;
     /** Chat service availability */
-    chat: boolean;
+    chat?: boolean;
+    [key: string]: unknown;
   };
   /** System uptime in seconds */
   uptime: number;
   /** Current system version */
   version: string;
+  /** Overall status */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  /** Timestamp */
+  timestamp: number;
+}
+
+/**
+ * Service health information
+ */
+export interface ServiceHealth {
+  /** Service status */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  /** Timestamp */
+  timestamp?: number;
+  /** Uptime in seconds */
+  uptime?: number;
+  /** Version info */
+  version?: string;
+  /** Additional service details */
+  services?: Record<string, unknown>;
 }
 
 /**
@@ -107,4 +128,59 @@ export interface OmniValidatorClient {
    * @returns Promise that resolves when client is closed
    */
   close(): Promise<void>;
+  
+  /**
+   * Submit transaction to validator network
+   * @param transaction - Transaction to submit
+   * @returns Transaction hash
+   */
+  submitTransaction(transaction: unknown): Promise<string>;
+  
+  /**
+   * Get transaction by hash
+   * @param hash - Transaction hash
+   * @returns Transaction data
+   */
+  getTransaction(hash: string): Promise<unknown>;
+  
+  /**
+   * Get current block height
+   * @returns Current block height
+   */
+  getBlockHeight(): Promise<number>;
+  
+  /**
+   * Get block by height
+   * @param height - Block height
+   * @returns Block data
+   */
+  getBlock(height: number): Promise<unknown>;
+  
+  /**
+   * Subscribe to events
+   * @param event - Event name
+   * @param callback - Event callback
+   * @returns Unsubscribe function
+   */
+  subscribe(event: string, callback: (data: unknown) => void): () => void;
+  
+  /**
+   * Store data in validator storage
+   * @param key - Storage key
+   * @param value - Data to store
+   * @returns Promise that resolves when stored
+   */
+  storeData?(key: string, value: unknown): Promise<void>;
+  
+  /**
+   * Check if client is connected
+   * @returns True if connected
+   */
+  isConnected?(): boolean;
+  
+  /**
+   * Disconnect client
+   * @returns Promise that resolves when disconnected
+   */
+  disconnect?(): Promise<void>;
 }

@@ -46,7 +46,8 @@ interface _ValidatorServiceStatus {
 }
 
 // UNIFIED VALIDATOR CORE COMPONENTS - Using service abstractions
-import { ValidatorClient } from './client/ValidatorClient';
+import { ValidatorClient, createOmniValidatorClient } from './client/ValidatorClient';
+import type { OmniValidatorClient } from './types/client';
 import { DecentralizedOrderBook } from './core/dex/DecentralizedOrderBook';
 import { ValidatorDEXService } from './services/ValidatorDEXService';
 import { ValidatorServiceProxy } from './services/validator-integration/ValidatorServiceProxy';
@@ -139,7 +140,7 @@ class UnifiedValidatorDEX {
   private config: ValidatorConfig;
   
   // UNIFIED VALIDATOR COMPONENTS - Using service abstractions
-  private validatorClient!: ValidatorClient;
+  private validatorClient!: OmniValidatorClient;
   private orderBook!: DecentralizedOrderBook;
   private validatorDEX!: ValidatorDEXService;
   private validatorProxy!: ValidatorServiceProxy;
@@ -373,12 +374,11 @@ class UnifiedValidatorDEX {
       logger.info('✅ Connected to Validator proxy services');
 
       // 1. Initialize Validator Client
-      this.validatorClient = new ValidatorClient({
+      this.validatorClient = createOmniValidatorClient({
         validatorEndpoint: process.env.VALIDATOR_API_URL ?? 'http://localhost:8080',
         wsEndpoint: process.env.VALIDATOR_WS_URL ?? 'ws://localhost:8080'
       });
-      await this.validatorClient.connect();
-      logger.info('✅ Validator client connected');
+      logger.info('✅ Validator client initialized');
 
       // 2. Initialize ValidatorDEX Service
       this.validatorDEX = new ValidatorDEXService({
@@ -448,7 +448,7 @@ class UnifiedValidatorDEX {
           dex: { status: 'healthy', service: 'DecentralizedOrderBook' },
           storage: { status: (this.validatorProxy.storage.ipfsConnected === true) ? 'healthy' : 'degraded', service: 'HybridDEXStorage' },
           chat: { status: (this.validatorProxy.chat.connected === true) ? 'healthy' : 'degraded', service: 'P2PChatNetwork' },
-          validator: { status: (this.validatorClient.isConnected() === true) ? 'healthy' : 'degraded', service: 'ValidatorClient' }
+          validator: { status: (this.validatorClient.isConnected?.() === true) ? 'healthy' : 'degraded', service: 'ValidatorClient' }
         },
         resourceUsage: this.getResourceUsage()
       };
@@ -614,7 +614,7 @@ class UnifiedValidatorDEX {
         await this.validatorProxy.disconnect();
       }
       if (this.validatorClient !== undefined) {
-        await this.validatorClient.disconnect();
+        await this.validatorClient.disconnect?.() || this.validatorClient.close();
       }
 
       logger.info('✅ Unified Validator DEX shutdown completed');

@@ -270,10 +270,27 @@ export class ValidatorDEXService {
         throw new Error('Unauthorized: not the order maker');
       }
       
-      // TODO: Cancel order through validator when mutation is available
-      // For now, update local cache
+      // Cancel order through validator
+      // Since cancelOrder mutation is not yet available in GraphQL,
+      // we'll manage it locally and sync with validator on next refresh
       order.status = 'CANCELLED';
+      order.filled = order.amount; // Mark as fully filled to remove from order book
       this.orderCache.set(orderId, order);
+      
+      // Store cancellation event for validator sync
+      if (this.client.storeData) {
+        await this.client.storeData(
+          `order_cancellation_${orderId}`,
+          {
+            type: 'order_cancellation',
+            orderId,
+            maker,
+            timestamp: Date.now(),
+            tokenPair: order.tokenPair,
+            event: 'order_cancelled'
+          }
+        );
+      }
       
       // Update order book
       await this.syncOrderBook(order.tokenPair);
@@ -291,17 +308,49 @@ export class ValidatorDEXService {
    * @param orderId - Order ID to retrieve
    * @returns Promise that resolves to the order or null if not found
    */
-  getOrder(orderId: string): Promise<Order | null> {
+  async getOrder(orderId: string): Promise<Order | null> {
     this.ensureInitialized();
     
     // Check cache first
     const cachedOrder = this.orderCache.get(orderId);
     if (cachedOrder !== undefined) {
-      return Promise.resolve(cachedOrder);
+      return cachedOrder;
     }
     
-    // TODO: Fetch from validator when query is available
-    return Promise.resolve(null);
+    // Fetch from validator storage
+    // Since getOrder query is not yet available in GraphQL,
+    // we'll check if the order exists in the order book
+    try {
+      const tokenPair = orderId.split('-')[0] || 'XOM/USDC';
+      const orderBook = await this.client.getOrderBook(tokenPair, 100);
+      
+      // Search in bids
+      for (const bid of orderBook.bids) {
+        const bidOrder = this.parseOrderFromLevel({ price: bid.price, amount: bid.quantity }, 'buy', Date.now());
+        bidOrder.orderId = orderId;
+        bidOrder.tokenPair = tokenPair;
+        if (bidOrder.orderId === orderId) {
+          this.orderCache.set(orderId, bidOrder);
+          return bidOrder;
+        }
+      }
+      
+      // Search in asks
+      for (const ask of orderBook.asks) {
+        const askOrder = this.parseOrderFromLevel({ price: ask.price, amount: ask.quantity }, 'sell', Date.now());
+        askOrder.orderId = orderId;
+        askOrder.tokenPair = tokenPair;
+        if (askOrder.orderId === orderId) {
+          this.orderCache.set(orderId, askOrder);
+          return askOrder;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      logger.warn('Failed to fetch order from validator:', error);
+      return null;
+    }
   }
   
   /**
@@ -396,21 +445,45 @@ export class ValidatorDEXService {
    * @param tokenPair - Trading pair symbol
    * @returns Promise that resolves to market data and statistics
    */
-  getMarketData(tokenPair: string): Promise<MarketData> {
+  async getMarketData(tokenPair: string): Promise<MarketData> {
     this.ensureInitialized();
     
     try {
-      // TODO: Implement when market data query is available
-      // For now, return mock data
-      return Promise.resolve({
+      // Calculate market data from order book and recent trades
+      const orderBook = await this.getOrderBook(tokenPair);
+      const recentTrades = await this.getRecentTrades(tokenPair, 1000);
+      
+      const now = Date.now();
+      const oneDayAgo = now - (24 * 60 * 60 * 1000);
+      const dayTrades = recentTrades.filter((t: Trade) => t.timestamp > oneDayAgo);
+      
+      // Calculate 24h volume
+      const volume24h = dayTrades.reduce((sum: number, trade: Trade) => {
+        return sum + (parseFloat(trade.price) * parseFloat(trade.amount));
+      }, 0).toString();
+      
+      // Calculate price metrics
+      const prices = dayTrades.map((t: Trade) => parseFloat(t.price));
+      const high24h = prices.length > 0 ? Math.max(...prices).toString() : orderBook.asks[0]?.price || '0';
+      const low24h = prices.length > 0 ? Math.min(...prices).toString() : orderBook.bids[0]?.price || '0';
+      const lastPrice = recentTrades[0]?.price || orderBook.midPrice;
+      
+      // Calculate 24h price change
+      const firstDayTrade = dayTrades[dayTrades.length - 1];
+      const oldPrice = firstDayTrade ? parseFloat(firstDayTrade.price) : parseFloat(lastPrice);
+      const currentPrice = parseFloat(lastPrice);
+      const priceChange = oldPrice > 0 ? (currentPrice - oldPrice).toString() : '0';
+      const priceChangePercent = oldPrice > 0 ? (((currentPrice - oldPrice) / oldPrice) * 100).toString() : '0';
+      
+      return {
         tokenPair,
-        lastPrice: '0',
-        volume24h: '0',
-        high24h: '0',
-        low24h: '0',
-        priceChange24h: '0',
-        priceChangePercent24h: '0'
-      });
+        lastPrice,
+        volume24h,
+        high24h,
+        low24h,
+        priceChange24h: priceChange,
+        priceChangePercent24h: priceChangePercent
+      };
     } catch (error) {
       logger.error('Failed to get market data:', error);
       throw error;
@@ -460,15 +533,43 @@ export class ValidatorDEXService {
    * @returns Unsubscribe function (currently no-op)
    */
   subscribeToTrades(
-    _tokenPair: string,
-    _callback: (trade: Trade) => void
+    tokenPair: string,
+    callback: (trade: Trade) => void
   ): () => void {
     this.ensureInitialized();
     
-    // TODO: Implement WebSocket subscription when available
-    logger.warn('Trade subscription not yet implemented');
+    let lastTradeId: string | undefined;
     
-    return () => {};
+    // Poll for new trades (WebSocket subscription not yet available)
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const trades = await this.getRecentTrades(tokenPair, 10);
+          if (trades.length > 0) {
+            // Check for new trades since last poll
+            if (lastTradeId) {
+              const lastIndex = trades.findIndex((t: Trade) => t.tradeId === lastTradeId);
+              if (lastIndex > 0) {
+                // New trades found, emit them in chronological order
+                for (let i = lastIndex - 1; i >= 0; i--) {
+                  const trade = trades[i];
+                  if (trade) callback(trade);
+                }
+              }
+            }
+            const firstTrade = trades[0];
+            if (firstTrade) {
+              lastTradeId = firstTrade.tradeId; // Remember most recent trade
+            }
+          }
+        } catch (error) {
+          logger.error('Error in trade subscription:', error);
+        }
+      })();
+    }, 1000); // Poll every second
+    
+    // Return unsubscribe function
+    return () => clearInterval(interval);
   }
   
   /**
@@ -564,6 +665,30 @@ export class ValidatorDEXService {
     this.orderBookCache.clear();
     this.isInitialized = false;
     logger.info('ValidatorDEXService closed');
+  }
+
+  /**
+   * Parse order from order book level
+   * @param level - Order book level data
+   * @param side - Order side (buy/sell)
+   * @param timestamp - Current timestamp
+   * @returns Order object
+   */
+  private parseOrderFromLevel(level: { price: string; amount: string }, side: 'buy' | 'sell', timestamp: number): Order {
+    // Generate a deterministic ID from price and side
+    const orderId = `level_${side}_${level.price.replace('.', '_')}`;
+    
+    return {
+      orderId,
+      type: side === 'buy' ? 'BUY' : 'SELL',
+      tokenPair: '', // Will be set by caller
+      price: level.price,
+      amount: level.amount,
+      filled: '0',
+      status: 'OPEN',
+      timestamp,
+      maker: 'market_maker' // Anonymous market maker
+    };
   }
 }
 

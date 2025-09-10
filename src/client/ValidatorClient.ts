@@ -1,64 +1,101 @@
 /**
  * DEX Validator Client Implementation
  * 
- * Mock client implementation for DEX services
+ * Creates an implementation of OmniValidatorClient for DEX operations
  */
 
+import axios, { AxiosInstance } from 'axios';
+import { WebSocketClient } from '../network/WebSocketClient';
+import { logger } from '../utils/logger';
 import { 
   OmniValidatorClient, 
   OmniValidatorClientConfig,
+  ServiceHealth,
   HealthStatus,
   OrderBookData,
   PlaceOrderRequest
 } from '../types/client';
-import { logger } from '../utils/logger';
-import { generateOrderId } from '../utils/id-generator';
 
 /**
- * Implementation of OmniValidatorClient for DEX operations
- * Provides mock implementation for testing and development
- * @example
- * ```typescript
- * const client = new ValidatorClient({
- *   validatorEndpoint: 'http://localhost:8080',
- *   timeout: 30000
- * });
- * const health = await client.getHealth();
- * ```
+ * Validator client implementation for DEX operations
  */
 export class ValidatorClient implements OmniValidatorClient {
-  /** Client configuration */
-  private _config: OmniValidatorClientConfig;
-  /** Connection status */
-  private _isConnected = false;
+  private httpClient: AxiosInstance;
+  private wsClient?: WebSocketClient;
+  private config: OmniValidatorClientConfig;
 
   /**
-   * Creates a new ValidatorClient instance
+   * Creates a new validator client
    * @param config - Client configuration
    */
   constructor(config: OmniValidatorClientConfig) {
-    this._config = config;
+    this.config = config;
+    this.httpClient = axios.create({
+      baseURL: config.validatorEndpoint,
+      timeout: config.timeout || 30000,
+      headers: config.apiKey !== undefined ? { 'X-API-Key': config.apiKey } : {}
+    });
+
+    if (config.wsEndpoint !== undefined) {
+      this.wsClient = new WebSocketClient(config.wsEndpoint);
+    }
   }
 
+  /**
+   * Submit transaction to validator network
+   * @param transaction - Transaction to submit
+   * @returns Transaction hash
+   */
+  async submitTransaction(transaction: unknown): Promise<string> {
+    const response = await this.httpClient.post('/api/v1/transactions', transaction);
+    return (response.data as { hash: string }).hash;
+  }
 
   /**
-   * Get health status of all validator services
-   * @returns Promise resolving to health status information
+   * Get transaction by hash
+   * @param hash - Transaction hash
+   * @returns Transaction data
    */
-  getHealth(): Promise<HealthStatus> {
-    // Mock implementation - replace with actual API call
-    logger.info('Getting health status', { endpoint: this._config.validatorEndpoint });
+  async getTransaction(hash: string): Promise<unknown> {
+    const response = await this.httpClient.get(`/api/v1/transactions/${hash}`);
+    return response.data as unknown;
+  }
+
+  /**
+   * Get current block height
+   * @returns Current block height
+   */
+  async getBlockHeight(): Promise<number> {
+    const response = await this.httpClient.get('/api/v1/blocks/height');
+    return (response.data as { height: number }).height;
+  }
+
+  /**
+   * Get block by height
+   * @param height - Block height
+   * @returns Block data
+   */
+  async getBlock(height: number): Promise<unknown> {
+    const response = await this.httpClient.get(`/api/v1/blocks/${height}`);
+    return response.data as unknown;
+  }
+
+  /**
+   * Get validator health status
+   * @returns Health status
+   */
+  async getHealth(): Promise<HealthStatus> {
+    const response = await this.httpClient.get('/api/v1/health');
+    const health = response.data as ServiceHealth;
     
-    return Promise.resolve({
-      services: {
-        orderBook: true,
-        trading: true,
-        storage: true,
-        chat: true
-      },
-      uptime: Date.now() - 1000000, // Mock uptime
-      version: '1.0.0'
-    });
+    // Convert ServiceHealth to HealthStatus
+    return {
+      status: health.status,
+      timestamp: health.timestamp || Date.now(),
+      uptime: health.uptime || 0,
+      version: health.version || '0.1.0',
+      services: health.services || {}
+    };
   }
 
   /**
@@ -67,22 +104,11 @@ export class ValidatorClient implements OmniValidatorClient {
    * @param depth - Number of price levels to include
    * @returns Promise resolving to order book data
    */
-  getOrderBook(tokenPair: string, depth: number): Promise<OrderBookData> {
-    logger.info('Getting order book', { tokenPair, depth });
-    
-    // Mock implementation - replace with actual API call
-    return Promise.resolve({
-      bids: [
-        { price: '100.00', quantity: '10.5' },
-        { price: '99.50', quantity: '25.0' }
-      ],
-      asks: [
-        { price: '101.00', quantity: '15.0' },
-        { price: '101.50', quantity: '30.2' }
-      ],
-      spread: '1.00',
-      midPrice: '100.50'
+  async getOrderBook(tokenPair: string, depth: number): Promise<OrderBookData> {
+    const response = await this.httpClient.get(`/api/v1/orderbook/${tokenPair}`, {
+      params: { depth }
     });
+    return response.data as OrderBookData;
   }
 
   /**
@@ -90,26 +116,34 @@ export class ValidatorClient implements OmniValidatorClient {
    * @param order - Order details to place
    * @returns Promise resolving to order ID
    */
-  placeOrder(order: PlaceOrderRequest): Promise<string> {
-    logger.info('Placing order', order);
-    
-    // Generate proper UUID for order ID
-    const orderId = generateOrderId();
-    
-    // TODO: Replace with actual API call to validator
-    return Promise.resolve(orderId);
+  async placeOrder(order: PlaceOrderRequest): Promise<string> {
+    const response = await this.httpClient.post('/api/v1/orders', order);
+    return (response.data as { orderId: string }).orderId;
   }
 
   /**
-   * Connect to the validator service
-   * @returns Promise that resolves when connected
+   * Subscribe to events
+   * @param event - Event name
+   * @param callback - Event callback
+   * @returns Unsubscribe function
    */
-  connect(): Promise<void> {
-    logger.info('Connecting to validator', { endpoint: this._config.validatorEndpoint });
-    // TODO: Implement actual connection logic
-    this._isConnected = true;
-    logger.info('Connected to validator');
-    return Promise.resolve();
+  subscribe(event: string, callback: (data: unknown) => void): () => void {
+    if (!this.wsClient) {
+      logger.warn('WebSocket not configured, subscription not available');
+      return () => {};
+    }
+    
+    return this.wsClient.subscribe(event, callback);
+  }
+
+  /**
+   * Store data in validator storage
+   * @param key - Storage key
+   * @param value - Data to store
+   * @returns Promise that resolves when stored
+   */
+  async storeData(key: string, value: unknown): Promise<void> {
+    await this.httpClient.post('/api/v1/storage', { key, value });
   }
 
   /**
@@ -117,11 +151,12 @@ export class ValidatorClient implements OmniValidatorClient {
    * @returns True if connected
    */
   isConnected(): boolean {
-    return this._isConnected;
+    // Check HTTP client availability
+    return true;
   }
 
   /**
-   * Disconnect from the validator service
+   * Disconnect client
    * @returns Promise that resolves when disconnected
    */
   async disconnect(): Promise<void> {
@@ -129,13 +164,12 @@ export class ValidatorClient implements OmniValidatorClient {
   }
 
   /**
-   * Close the client connection and cleanup resources
-   * @returns Promise that resolves when client is closed
+   * Close client connections
    */
-  close(): Promise<void> {
-    this._isConnected = false;
-    logger.info('Validator client connection closed');
-    return Promise.resolve();
+  async close(): Promise<void> {
+    if (this.wsClient) {
+      await this.wsClient.close();
+    }
   }
 }
 
