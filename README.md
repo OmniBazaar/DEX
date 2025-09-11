@@ -267,21 +267,18 @@ The validator network powers the entire OmniBazaar ecosystem:
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/omnibazaar/dex.git
-cd dex
+# Clone the OmniBazaar repository (if not already done)
+git clone https://github.com/omnibazaar/omnibazaar.git
+cd omnibazaar
 
-# Install core dependencies
-npm install express cors helmet express-rate-limit express-validator socket.io --legacy-peer-deps
+# Install all dependencies from the root directory
+npm install --legacy-peer-deps
 
-# Install TypeScript types
-npm install --save-dev @types/express @types/cors @types/helmet @types/node @types/socket.io --legacy-peer-deps
+# Note: Dependencies are now managed at the root level in /home/rickc/OmniBazaar/node_modules
+# This includes all DEX dependencies (express, ethers, web3, socket.io, etc.)
 
-# Install additional dependencies for full functionality
-npm install ethers web3 axios bignumber.js ws dotenv winston joi jsonwebtoken bcrypt node-cron --legacy-peer-deps
-
-# Install IPFS and P2P dependencies (optional for basic functionality)
-npm install ipfs-core libp2p multiformats uint8arrays it-pipe --legacy-peer-deps
+# Navigate to DEX module
+cd DEX
 
 # Configure environment
 cp .env.example .env
@@ -467,6 +464,24 @@ npm run test:performance      # Performance tests
 # Test coverage
 npm run test:coverage
 ```
+
+#### Cross-Module Integration Testing
+
+The DEX module is fully integrated with the test suite at the project root:
+
+```bash
+# Run all integration tests including DEX
+cd /home/rickc/OmniBazaar
+npm run test:integration
+
+# Run only DEX tests
+npx jest tests/integration/features/dex
+
+# Run specific test file
+npx jest tests/integration/features/dex/dex-trading.test.ts
+```
+
+For more details, see the [Integration Test Documentation](/home/rickc/OmniBazaar/tests/integration/README.md)
 
 ### Building
 
