@@ -65,7 +65,9 @@ afterAll(() => {
   // Clean up test environment
 });
 
-// Mock external dependencies for testing
+// NOTE: Mocks are disabled for real integration testing
+// Uncomment these only for unit tests that need isolation
+/*
 jest.mock('ws', () => ({
   WebSocket: jest.fn().mockImplementation(() => ({
     on: jest.fn(),
@@ -81,6 +83,7 @@ jest.mock('socket.io', () => ({
     close: jest.fn(),
   })),
 }));
+*/
 
 // Suppress console.log during tests (except errors)
 // eslint-disable-next-line no-console

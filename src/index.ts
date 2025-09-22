@@ -46,7 +46,7 @@ interface _ValidatorServiceStatus {
 }
 
 // UNIFIED VALIDATOR CORE COMPONENTS - Using service abstractions
-import { ValidatorClient, createOmniValidatorClient } from './client/ValidatorClient';
+import { createOmniValidatorClient } from './client/ValidatorClient';
 import type { OmniValidatorClient } from './types/client';
 import { DecentralizedOrderBook } from './core/dex/DecentralizedOrderBook';
 import { ValidatorDEXService } from './services/ValidatorDEXService';
@@ -614,7 +614,11 @@ class UnifiedValidatorDEX {
         await this.validatorProxy.disconnect();
       }
       if (this.validatorClient !== undefined) {
-        await this.validatorClient.disconnect?.() || this.validatorClient.close();
+        if (this.validatorClient.disconnect !== undefined) {
+          await this.validatorClient.disconnect();
+        } else {
+          await this.validatorClient.close();
+        }
       }
 
       logger.info('✅ Unified Validator DEX shutdown completed');

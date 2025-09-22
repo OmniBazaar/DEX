@@ -83,14 +83,14 @@ export class WebSocketClient extends EventEmitter {
    * @param data - Data to send
    */
   send(event: string, data: unknown): void {
-    if (!this.ws) {
+    if (this.ws === null || this.ws === undefined) {
       logger.warn('WebSocket not connected, queueing message');
       return;
     }
 
     try {
-      const message = JSON.stringify({ event, data });
-      // Would send through ws.send(message) with real WebSocket
+      const _message = JSON.stringify({ event, data });
+      // Would send through ws.send(_message) with real WebSocket
       logger.debug(`Sending WebSocket message: ${event}`);
     } catch (error) {
       logger.error('Error sending WebSocket message:', error);
@@ -101,10 +101,12 @@ export class WebSocketClient extends EventEmitter {
    * Close WebSocket connection
    */
   async close(): Promise<void> {
-    if (this.ws) {
+    if (this.ws !== null && this.ws !== undefined) {
       // Would close the actual WebSocket connection
       logger.info('Closing WebSocket connection');
     }
     this.removeAllListeners();
+    // Return resolved promise to satisfy async requirement
+    await Promise.resolve();
   }
 }

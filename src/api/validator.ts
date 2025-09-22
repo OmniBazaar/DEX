@@ -10,14 +10,6 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../utils/logger';
 
-interface ValidatorHealthStatus {
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  uptime: number;
-  version: string;
-  currentBlock: number;
-  syncStatus: 'synced' | 'syncing' | 'behind';
-  lastError?: string;
-}
 
 interface ResourceUsage {
   cpu: {
@@ -143,13 +135,13 @@ export function createValidatorRoutes(validatorNode: GatewayOmniValidator): Rout
         const metrics = await validatorNode.getMetrics();
         // Extract network-related metrics
         const networkInfo: NetworkInfo = {
-          chainId: metrics.chainId || '43114',
-          networkName: metrics.networkId || 'omnibazaar-mainnet',
-          nodeId: metrics.nodeId || 'node-1',
-          totalPeers: metrics.peersConnected || 0,
-          blockHeight: metrics.lastProcessedBlock || 0,
-          validatorCount: metrics.validatorCount || 1,
-          consensusStatus: metrics.consensusStatus || 'active'
+          chainId: metrics.chainId ?? '43114',
+          networkName: metrics.networkId ?? 'omnibazaar-mainnet',
+          nodeId: metrics.nodeId ?? 'node-1',
+          totalPeers: metrics.peersConnected ?? 0,
+          blockHeight: metrics.lastProcessedBlock ?? 0,
+          validatorCount: metrics.validatorCount ?? 1,
+          consensusStatus: metrics.consensusStatus ?? 'active'
         };
         res.json(networkInfo);
       } catch (error) {
@@ -178,7 +170,7 @@ export function createValidatorRoutes(validatorNode: GatewayOmniValidator): Rout
         const metrics = await validatorNode.getMetrics();
         // Return peer count as we don't have detailed peer info
         const peers: ValidatorPeer[] = [];
-        const peerCount = metrics.peersConnected || 0;
+        const peerCount = metrics.peersConnected ?? 0;
         
         // Return summary instead of detailed peer list
         res.json({ 

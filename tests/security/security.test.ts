@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import WebSocket from 'ws';
 import { DEXRegistry, OrderBook, FeeCollector, MockERC20 } from '../../typechain-types';
 
-describe('DEX Security Tests', function() {
+describe('DEX Security Tests', () => {
   let owner: SignerWithAddress;
   let attacker: SignerWithAddress;
   let user1: SignerWithAddress;
@@ -42,19 +42,19 @@ describe('DEX Security Tests', function() {
     
     // Initialize
     await orderBook.initialize(
-      tokenA.address,
-      tokenB.address,
-      feeCollector.address,
+      await tokenA.getAddress(),
+      await tokenB.getAddress(),
+      await feeCollector.getAddress(),
       10, // 0.1% maker fee
       20  // 0.2% taker fee
     );
     
     // Mint tokens
-    const amount = ethers.utils.parseEther('10000');
-    await tokenA.mint(user1.address, amount);
-    await tokenB.mint(user1.address, amount);
-    await tokenA.mint(attacker.address, amount);
-    await tokenB.mint(attacker.address, amount);
+    const amount = ethers.parseEther('10000');
+    await tokenA.mint(await user1.getAddress(), amount);
+    await tokenB.mint(await user1.getAddress(), amount);
+    await tokenA.mint(await attacker.getAddress(), amount);
+    await tokenB.mint(await attacker.getAddress(), amount);
   });
 
   describe('Smart Contract Security', () => {
@@ -65,10 +65,10 @@ describe('DEX Security Tests', function() {
     it('should prevent reentrancy in order placement', async (): Promise<void> => {
         // Deploy malicious token that attempts reentrancy
         const ReentrancyAttacker = await ethers.getContractFactory('ReentrancyAttacker');
-        const attackContract = await ReentrancyAttacker.deploy(orderBook.address);
+        const attackContract = await ReentrancyAttacker.deploy(await orderBook.getAddress());
         
         // Fund attacker contract
-        await tokenA.mint(attackContract.address, ethers.utils.parseEther('1000'));
+        await tokenA.mint(attackContract.getAddress(), ethers.parseEther('1000'));
         
         // Attempt reentrancy attack
         await expect(
@@ -80,16 +80,16 @@ describe('DEX Security Tests', function() {
        * Tests reentrancy protection in order cancellation
        */
     it('should prevent reentrancy in order cancellation', async (): Promise<void> => {
-        const price = ethers.utils.parseEther('2000');
-        const amount = ethers.utils.parseEther('1');
+        const price = ethers.parseEther('2000');
+        const amount = ethers.parseEther('1');
         
         // Place order first
-        await tokenB.connect(user1).approve(orderBook.address, ethers.constants.MaxUint256);
+        await tokenB.connect(user1).approve(orderBook.getAddress(), ethers.MaxUint256);
         await orderBook.connect(user1).placeLimitOrder(true, price, amount);
         
         // Deploy attacker
         const ReentrancyAttacker = await ethers.getContractFactory('ReentrancyAttacker');
-        const attackContract = await ReentrancyAttacker.deploy(orderBook.address);
+        const attackContract = await ReentrancyAttacker.deploy(await orderBook.getAddress());
         
         // Transfer order ownership to attacker (hypothetically)
         // Attempt reentrancy during cancellation
@@ -104,7 +104,7 @@ describe('DEX Security Tests', function() {
        * Tests safe handling of maximum uint256 values
        */
     it('should handle maximum uint256 values safely', async (): Promise<void> => {
-        const maxUint = ethers.constants.MaxUint256;
+        const maxUint = ethers.MaxUint256;
         
         // Attempt to place order with max values
         await expect(
@@ -116,11 +116,11 @@ describe('DEX Security Tests', function() {
        * Tests prevention of underflow in balance calculations
        */
     it('should prevent underflow in balance calculations', async (): Promise<void> => {
-        const price = ethers.utils.parseEther('2000');
-        const amount = ethers.utils.parseEther('1');
+        const price = ethers.parseEther('2000');
+        const amount = ethers.parseEther('1');
         
         // Approve minimal amount
-        await tokenB.connect(user1).approve(orderBook.address, 1);
+        await tokenB.connect(user1).approve(orderBook.getAddress(), 1);
         
         // Try to place order with insufficient approval
         await expect(
@@ -148,7 +148,7 @@ describe('DEX Security Tests', function() {
        */
     it('should restrict operator functions', async (): Promise<void> => {
         await expect(
-          dexRegistry.connect(attacker).registerTradingPair(tokenA.address, tokenB.address)
+          dexRegistry.connect(attacker).registerTradingPair(await tokenA.getAddress(), await tokenB.getAddress())
         ).to.be.revertedWith('Not authorized');
       });
 
@@ -156,11 +156,11 @@ describe('DEX Security Tests', function() {
        * Tests prevention of unauthorized order cancellation
        */
     it('should prevent unauthorized order cancellation', async (): Promise<void> => {
-        const price = ethers.utils.parseEther('2000');
-        const amount = ethers.utils.parseEther('1');
+        const price = ethers.parseEther('2000');
+        const amount = ethers.parseEther('1');
         
         // User1 places order
-        await tokenB.connect(user1).approve(orderBook.address, ethers.constants.MaxUint256);
+        await tokenB.connect(user1).approve(orderBook.getAddress(), ethers.MaxUint256);
         await orderBook.connect(user1).placeLimitOrder(true, price, amount);
         
         // Attacker tries to cancel
@@ -176,12 +176,12 @@ describe('DEX Security Tests', function() {
        */
     it('should use commit-reveal for sensitive operations', async (): Promise<void> => {
         // Test if order placement uses proper ordering
-        const price = ethers.utils.parseEther('2000');
-        const amount = ethers.utils.parseEther('1');
+        const price = ethers.parseEther('2000');
+        const amount = ethers.parseEther('1');
         
         // Multiple users place orders in same block
-        await tokenB.connect(user1).approve(orderBook.address, ethers.constants.MaxUint256);
-        await tokenA.connect(user2).approve(orderBook.address, ethers.constants.MaxUint256);
+        await tokenB.connect(user1).approve(orderBook.getAddress(), ethers.MaxUint256);
+        await tokenA.connect(user2).approve(orderBook.getAddress(), ethers.MaxUint256);
         
         const tx1 = orderBook.connect(user1).placeLimitOrder(true, price, amount);
         const tx2 = orderBook.connect(user2).placeLimitOrder(false, price, amount);
@@ -202,19 +202,19 @@ describe('DEX Security Tests', function() {
        * Tests prevention of extreme price deviations
        */
     it('should prevent extreme price deviations', async (): Promise<void> => {
-        const normalPrice = ethers.utils.parseEther('2000');
-        const manipulatedPrice = ethers.utils.parseEther('1'); // 99.95% deviation
+        const normalPrice = ethers.parseEther('2000');
+        const manipulatedPrice = ethers.parseEther('1'); // 99.95% deviation
         
         // Place normal order
-        await tokenB.connect(user1).approve(orderBook.address, ethers.constants.MaxUint256);
-        await orderBook.connect(user1).placeLimitOrder(true, normalPrice, ethers.utils.parseEther('1'));
+        await tokenB.connect(user1).approve(orderBook.getAddress(), ethers.MaxUint256);
+        await orderBook.connect(user1).placeLimitOrder(true, normalPrice, ethers.parseEther('1'));
         
         // Attempt price manipulation
-        await tokenA.connect(attacker).approve(orderBook.address, ethers.constants.MaxUint256);
+        await tokenA.connect(attacker).approve(orderBook.getAddress(), ethers.MaxUint256);
         
         // Should have price deviation check
         await expect(
-          orderBook.connect(attacker).placeLimitOrder(false, manipulatedPrice, ethers.utils.parseEther('100'))
+          orderBook.connect(attacker).placeLimitOrder(false, manipulatedPrice, ethers.parseEther('100'))
         ).to.be.revertedWith('Price deviation too high');
       });
     });
@@ -225,7 +225,7 @@ describe('DEX Security Tests', function() {
        */
     it('should prevent flash loan attacks on liquidity', async (): Promise<void> => {
         const FlashLoanAttacker = await ethers.getContractFactory('FlashLoanAttacker');
-        const flashAttacker = await FlashLoanAttacker.deploy(orderBook.address);
+        const flashAttacker = await FlashLoanAttacker.deploy(await orderBook.getAddress());
         
         // Attempt flash loan attack
         await expect(
@@ -396,8 +396,8 @@ describe('DEX Security Tests', function() {
       /**
        * Tests enforcement of rate limits
        */
-    it('should enforce rate limits', async function(): Promise<void> {
-        this.timeout(10000);
+    it('should enforce rate limits', async (): Promise<void> => {
+        jest.setTimeout(10000);
         
         const validToken = jwt.sign(
           { userId: 'test123' },
@@ -505,7 +505,7 @@ describe('DEX Security Tests', function() {
      */
     it('should not expose private user data', async (): Promise<void> => {
       const validToken = jwt.sign(
-        { userId: 'user123', address: user1.address },
+        { userId: 'user123', address: await user1.getAddress() },
         'test-secret'
       );
       
@@ -516,7 +516,7 @@ describe('DEX Security Tests', function() {
       
       // Try to get another user's orders
       const otherToken = jwt.sign(
-        { userId: 'user456', address: user2.address },
+        { userId: 'user456', address: await user2.getAddress() },
         'test-secret'
       );
       
@@ -559,15 +559,15 @@ describe('DEX Security Tests', function() {
       };
       
       // Sign order
-      const messageHash = ethers.utils.solidityKeccak256(
+      const messageHash = ethers.solidityPackedKeccak256(
         ['string', 'string', 'string', 'string', 'string', 'uint256'],
         [order.pair, order.side, order.type, order.price, order.amount, order.nonce]
       );
-      
-      const signature = await user1.signMessage(ethers.utils.arrayify(messageHash));
+
+      const signature = await user1.signMessage(ethers.getBytes(messageHash));
       
       const validToken = jwt.sign(
-        { userId: 'user123', address: user1.address },
+        { userId: 'user123', address: await user1.getAddress() },
         'test-secret'
       );
       
@@ -582,7 +582,7 @@ describe('DEX Security Tests', function() {
       expect(response.status).to.equal(200);
       
       // Try with wrong signature
-      const wrongSignature = await user2.signMessage(ethers.utils.arrayify(messageHash));
+      const wrongSignature = await user2.signMessage(ethers.getBytes(messageHash));
       
       try {
         await axios.post(`${API_URL}/orders`, {
@@ -604,17 +604,17 @@ describe('DEX Security Tests', function() {
      * Tests time lock requirement for large withdrawals
      */
     it('should require time lock for large withdrawals', async (): Promise<void> => {
-      const largeAmount = ethers.utils.parseEther('10000');
+      const largeAmount = ethers.parseEther('10000');
       
       // Request withdrawal
       await feeCollector.connect(owner).requestWithdrawal(
-        tokenA.address,
+        tokenA.getAddress(),
         largeAmount
       );
       
       // Try immediate withdrawal
       await expect(
-        feeCollector.connect(owner).executeWithdrawal(tokenA.address)
+        feeCollector.connect(owner).executeWithdrawal(tokenA.getAddress())
       ).to.be.revertedWith('Withdrawal time lock active');
       
       // Fast forward time
@@ -623,7 +623,7 @@ describe('DEX Security Tests', function() {
       
       // Now withdrawal should work
       await expect(
-        feeCollector.connect(owner).executeWithdrawal(tokenA.address)
+        feeCollector.connect(owner).executeWithdrawal(tokenA.getAddress())
       ).to.not.be.reverted;
     });
 
@@ -631,12 +631,12 @@ describe('DEX Security Tests', function() {
      * Tests daily withdrawal amount limits
      */
     it('should limit daily withdrawal amounts', async (): Promise<void> => {
-      const dailyLimit = ethers.utils.parseEther('50000');
+      const dailyLimit = ethers.parseEther('50000');
       
       // Try to withdraw more than daily limit
       await expect(
         feeCollector.connect(owner).withdraw(
-          tokenA.address,
+          tokenA.getAddress(),
           dailyLimit.add(1)
         )
       ).to.be.revertedWith('Daily withdrawal limit exceeded');
@@ -654,8 +654,8 @@ describe('DEX Security Tests', function() {
       await expect(
         orderBook.connect(user1).placeLimitOrder(
           true,
-          ethers.utils.parseEther('2000'),
-          ethers.utils.parseEther('1')
+          ethers.parseEther('2000'),
+          ethers.parseEther('1')
         )
       ).to.be.revertedWith('Trading paused');
     });
@@ -665,15 +665,15 @@ describe('DEX Security Tests', function() {
      */
     it('should have circuit breaker for extreme volatility', async (): Promise<void> => {
       // Simulate extreme price movement
-      const normalPrice = ethers.utils.parseEther('2000');
-      const crashPrice = ethers.utils.parseEther('1000'); // 50% drop
+      const normalPrice = ethers.parseEther('2000');
+      const crashPrice = ethers.parseEther('1000'); // 50% drop
       
       // Place orders to simulate crash
-      await tokenA.connect(attacker).approve(orderBook.address, ethers.constants.MaxUint256);
+      await tokenA.connect(attacker).approve(orderBook.getAddress(), ethers.MaxUint256);
       
       // Should trigger circuit breaker
       await expect(
-        orderBook.connect(attacker).placeMarketOrder(false, ethers.utils.parseEther('1000'))
+        orderBook.connect(attacker).placeMarketOrder(false, ethers.parseEther('1000'))
       ).to.be.revertedWith('Circuit breaker activated');
     });
   });

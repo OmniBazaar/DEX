@@ -32,7 +32,7 @@ export class ValidatorClient implements OmniValidatorClient {
     this.config = config;
     this.httpClient = axios.create({
       baseURL: config.validatorEndpoint,
-      timeout: config.timeout || 30000,
+      timeout: config.timeout ?? 30000,
       headers: config.apiKey !== undefined ? { 'X-API-Key': config.apiKey } : {}
     });
 
@@ -91,10 +91,10 @@ export class ValidatorClient implements OmniValidatorClient {
     // Convert ServiceHealth to HealthStatus
     return {
       status: health.status,
-      timestamp: health.timestamp || Date.now(),
-      uptime: health.uptime || 0,
-      version: health.version || '0.1.0',
-      services: health.services || {}
+      timestamp: health.timestamp ?? Date.now(),
+      uptime: health.uptime ?? 0,
+      version: health.version ?? '0.1.0',
+      services: health.services ?? {}
     };
   }
 
@@ -128,7 +128,7 @@ export class ValidatorClient implements OmniValidatorClient {
    * @returns Unsubscribe function
    */
   subscribe(event: string, callback: (data: unknown) => void): () => void {
-    if (!this.wsClient) {
+    if (this.wsClient === null || this.wsClient === undefined) {
       logger.warn('WebSocket not configured, subscription not available');
       return () => {};
     }
@@ -167,7 +167,7 @@ export class ValidatorClient implements OmniValidatorClient {
    * Close client connections
    */
   async close(): Promise<void> {
-    if (this.wsClient) {
+    if (this.wsClient !== null && this.wsClient !== undefined) {
       await this.wsClient.close();
     }
   }

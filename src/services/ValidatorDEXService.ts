@@ -278,7 +278,7 @@ export class ValidatorDEXService {
       this.orderCache.set(orderId, order);
       
       // Store cancellation event for validator sync
-      if (this.client.storeData) {
+      if (this.client.storeData !== undefined && this.client.storeData !== null) {
         await this.client.storeData(
           `order_cancellation_${orderId}`,
           {
@@ -321,7 +321,8 @@ export class ValidatorDEXService {
     // Since getOrder query is not yet available in GraphQL,
     // we'll check if the order exists in the order book
     try {
-      const tokenPair = orderId.split('-')[0] || 'XOM/USDC';
+      const tokenPairPart = orderId.split('-')[0];
+      const tokenPair = (tokenPairPart !== undefined && tokenPairPart !== '') ? tokenPairPart : 'XOM/USDC';
       const orderBook = await this.client.getOrderBook(tokenPair, 100);
       
       // Search in bids
@@ -464,13 +465,13 @@ export class ValidatorDEXService {
       
       // Calculate price metrics
       const prices = dayTrades.map((t: Trade) => parseFloat(t.price));
-      const high24h = prices.length > 0 ? Math.max(...prices).toString() : orderBook.asks[0]?.price || '0';
-      const low24h = prices.length > 0 ? Math.min(...prices).toString() : orderBook.bids[0]?.price || '0';
-      const lastPrice = recentTrades[0]?.price || orderBook.midPrice;
+      const high24h = prices.length > 0 ? Math.max(...prices).toString() : (orderBook.asks[0]?.price ?? '0');
+      const low24h = prices.length > 0 ? Math.min(...prices).toString() : (orderBook.bids[0]?.price ?? '0');
+      const lastPrice = recentTrades[0]?.price ?? orderBook.midPrice;
       
       // Calculate 24h price change
       const firstDayTrade = dayTrades[dayTrades.length - 1];
-      const oldPrice = firstDayTrade ? parseFloat(firstDayTrade.price) : parseFloat(lastPrice);
+      const oldPrice = (firstDayTrade !== undefined && firstDayTrade !== null) ? parseFloat(firstDayTrade.price) : parseFloat(lastPrice);
       const currentPrice = parseFloat(lastPrice);
       const priceChange = oldPrice > 0 ? (currentPrice - oldPrice).toString() : '0';
       const priceChangePercent = oldPrice > 0 ? (((currentPrice - oldPrice) / oldPrice) * 100).toString() : '0';
@@ -528,9 +529,9 @@ export class ValidatorDEXService {
   
   /**
    * Subscribe to trades
-   * @param _tokenPair - Trading pair to subscribe to (currently unused)
-   * @param _callback - Function to call on trade events (currently unused)
-   * @returns Unsubscribe function (currently no-op)
+   * @param tokenPair - Trading pair to subscribe to
+   * @param callback - Function to call on trade events
+   * @returns Unsubscribe function
    */
   subscribeToTrades(
     tokenPair: string,
@@ -547,18 +548,18 @@ export class ValidatorDEXService {
           const trades = await this.getRecentTrades(tokenPair, 10);
           if (trades.length > 0) {
             // Check for new trades since last poll
-            if (lastTradeId) {
+            if (lastTradeId !== undefined && lastTradeId !== '') {
               const lastIndex = trades.findIndex((t: Trade) => t.tradeId === lastTradeId);
               if (lastIndex > 0) {
                 // New trades found, emit them in chronological order
                 for (let i = lastIndex - 1; i >= 0; i--) {
                   const trade = trades[i];
-                  if (trade) callback(trade);
+                  if (trade !== undefined && trade !== null) callback(trade);
                 }
               }
             }
             const firstTrade = trades[0];
-            if (firstTrade) {
+            if (firstTrade !== undefined && firstTrade !== null) {
               lastTradeId = firstTrade.tradeId; // Remember most recent trade
             }
           }
@@ -670,6 +671,8 @@ export class ValidatorDEXService {
   /**
    * Parse order from order book level
    * @param level - Order book level data
+   * @param level.price - Price level
+   * @param level.amount - Amount at price level
    * @param side - Order side (buy/sell)
    * @param timestamp - Current timestamp
    * @returns Order object

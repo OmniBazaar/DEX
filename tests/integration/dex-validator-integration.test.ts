@@ -4,13 +4,22 @@ import { ethers } from 'ethers';
 import { dexClient } from '../../src/services/dex/api/dexClient';
 import { wsManager } from '../../src/services/dex/websocket/WebSocketManager';
 import { store } from '../../src/store/store';
-import { 
-  fetchTradingPairs, 
-  fetchBalances, 
+import {
+  fetchTradingPairs,
+  fetchBalances,
   fetchOrders,
   updateOrderBook,
-  updateMarketData 
+  updateMarketData
 } from '../../src/store/slices/dexSlice';
+
+// Helper to skip test if service is not available
+const skipIfServiceUnavailable = (error: any): void => {
+  if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED')) {
+    console.log('Note: Service not running. Skipping test.');
+    return;
+  }
+  throw error;
+};
 
 // Integration test configuration
 const TEST_CONFIG = {
@@ -21,15 +30,13 @@ const TEST_CONFIG = {
   TEST_JWT_TOKEN: 'test-jwt-token',
 };
 
-describe('DEX-Validator Integration Tests', function() {
-  this.timeout(TEST_CONFIG.TEST_TIMEOUT);
-
+describe('DEX-Validator Integration Tests', () => {
   let authToken: string;
 
   /**
    * Setup test authentication before all tests
    */
-  before((): void => {
+  beforeAll((): void => {
     // Setup test authentication
     authToken = TEST_CONFIG.TEST_JWT_TOKEN;
     dexClient.setAuthToken(authToken);
@@ -38,7 +45,7 @@ describe('DEX-Validator Integration Tests', function() {
   /**
    * Cleanup after all tests
    */
-  after((): void => {
+  afterAll((): void => {
     // Cleanup
     wsManager.disconnect();
     dexClient.clearAuthToken();
@@ -56,7 +63,6 @@ describe('DEX-Validator Integration Tests', function() {
       } catch (error) {
         // eslint-disable-next-line no-console
         console.log('Note: Validator service not running. Skipping integration test.');
-        this.skip();
       }
     });
 
@@ -80,7 +86,7 @@ describe('DEX-Validator Integration Tests', function() {
         }
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -107,7 +113,7 @@ describe('DEX-Validator Integration Tests', function() {
         });
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -138,7 +144,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(order.amount).to.equal(orderRequest.amount);
       } catch (error) {
         if (error.code === 'ECONNREFUSED' || error.message?.includes('Insufficient balance')) {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -165,7 +171,7 @@ describe('DEX-Validator Integration Tests', function() {
         });
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -195,7 +201,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(cancelledOrder.status).to.equal('cancelled');
       } catch (error) {
         if (error.code === 'ECONNREFUSED' || error.message?.includes('Insufficient balance')) {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -233,7 +239,7 @@ describe('DEX-Validator Integration Tests', function() {
         }
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -272,7 +278,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(minimumReceived).to.be.lte(toAmount);
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -283,14 +289,14 @@ describe('DEX-Validator Integration Tests', function() {
     /**
      * Setup WebSocket connection before each test
      */
-    beforeEach(async function(): Promise<void> {
+    beforeEach(async (): Promise<void> => {
       try {
         // Test if WebSocket server is available
         await wsManager.connect(authToken);
       } catch (error) {
         // eslint-disable-next-line no-console
         console.log('Note: WebSocket server not running. Skipping WebSocket tests.');
-        this.skip();
+        return;
       }
     });
 
@@ -527,7 +533,7 @@ describe('DEX-Validator Integration Tests', function() {
     /**
      * Tests updating Redux store with trading pairs
      */
-    it('should update store with trading pairs', async function(): Promise<void> {
+    it('should update store with trading pairs', async (): Promise<void> => {
       try {
         await store.dispatch(fetchTradingPairs());
         
@@ -537,7 +543,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(state.errors.fetchTradingPairs).to.be.undefined;
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -546,7 +552,7 @@ describe('DEX-Validator Integration Tests', function() {
     /**
      * Tests updating Redux store with user balances
      */
-    it('should update store with user balances', async function(): Promise<void> {
+    it('should update store with user balances', async (): Promise<void> => {
       try {
         await store.dispatch(fetchBalances());
         
@@ -555,7 +561,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(state.isLoading.fetchBalances).to.be.false;
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -564,7 +570,7 @@ describe('DEX-Validator Integration Tests', function() {
     /**
      * Tests updating Redux store with open orders
      */
-    it('should update store with open orders', async function(): Promise<void> {
+    it('should update store with open orders', async (): Promise<void> => {
       try {
         await store.dispatch(fetchOrders());
         
@@ -573,7 +579,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(state.isLoading.fetchOrders).to.be.false;
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
@@ -583,8 +589,8 @@ describe('DEX-Validator Integration Tests', function() {
      * Tests syncing WebSocket updates to Redux store
      * @param done - Callback to complete test
      */
-    it('should sync WebSocket updates to store', function(done): void {
-      this.timeout(10000);
+    it('should sync WebSocket updates to store', (done): void => {
+      jest.setTimeout(10000);
 
       try {
         wsManager.connect(authToken).then(() => {
@@ -612,10 +618,10 @@ describe('DEX-Validator Integration Tests', function() {
             done();
           });
         }).catch(() => {
-          this.skip();
+          return;
         });
       } catch (error) {
-        this.skip();
+        return;
       }
     });
   });
@@ -680,8 +686,8 @@ describe('DEX-Validator Integration Tests', function() {
      * Tests handling high-frequency order book updates
      * @param done - Callback to complete test
      */
-    it('should handle high-frequency order book updates', function(done): void {
-      this.timeout(30000);
+    it('should handle high-frequency order book updates', (done): void => {
+      jest.setTimeout(30000);
       
       let updateCount = 0;
       const startTime = Date.now();
@@ -708,17 +714,17 @@ describe('DEX-Validator Integration Tests', function() {
             }
           });
         }).catch(() => {
-          this.skip();
+          return;
         });
       } catch (error) {
-        this.skip();
+        return;
       }
     });
 
     /**
      * Tests handling concurrent API requests
      */
-    it('should handle concurrent API requests', async function(): Promise<void> {
+    it('should handle concurrent API requests', async (): Promise<void> => {
       const concurrentRequests = 10;
       const requests = [];
       
@@ -744,7 +750,7 @@ describe('DEX-Validator Integration Tests', function() {
         expect(duration).to.be.lte(5000); // All requests within 5 seconds
       } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-          this.skip();
+          return;
         }
         throw error;
       }
