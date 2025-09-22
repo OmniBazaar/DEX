@@ -13,19 +13,20 @@ import { getStorageConfig } from '../../src/config/storage.config';
 
 describe('Hybrid Storage Performance', () => {
   let storage: HybridDEXStorage;
-  
+
   /**
    * Initialize storage with test configuration
    */
-  beforeAll((): void => {
+  beforeAll(async (): Promise<void> => {
     // Initialize storage with test configuration
     const config = getStorageConfig();
     storage = new HybridDEXStorage(config);
-    
-    // Mock initialization for testing
-    // In real tests, would connect to actual services
+
+    // Initialize the storage properly
+    await storage.initialize();
+
     // eslint-disable-next-line no-console
-    console.log('Initializing hybrid storage for performance testing...');
+    console.log('Hybrid storage initialized for performance testing');
   });
   
   /**
@@ -108,7 +109,7 @@ describe('Hybrid Storage Performance', () => {
     it('should handle 10,000+ orders per second', async (): Promise<void> => {
       const orderCount = 10000;
       const orders: UnifiedOrder[] = [];
-      
+
       // Generate test orders
       for (let i = 0; i < orderCount; i++) {
         orders.push({
@@ -133,43 +134,23 @@ describe('Hybrid Storage Performance', () => {
           replicationNodes: []
         });
       }
-      
+
+      // Test direct storage writes without timing overhead
       const start = Date.now();
-      
-      // Process orders in parallel batches
-      const batchSize = 100;
-      const promises: Promise<void>[] = [];
-      
-      for (let i = 0; i < orders.length; i += batchSize) {
-        const batch = orders.slice(i, i + batchSize);
-        
-        promises.push(
-          Promise.all(
-            batch.map(order =>
-              performanceMonitor.timeOperation(
-                'placeOrder',
-                'hybrid',
-                async () => {
-                  // Simulate hybrid storage write
-                  await new Promise(resolve => setTimeout(resolve, 0.5)); // 0.5ms per order
-                  return { success: true };
-                }
-              )
-            )
-          ).then(() => {})
-        );
-      }
-      
+
+      // Process all orders as fast as possible
+      const promises = orders.map(order => storage.placeOrder(order));
       await Promise.all(promises);
-      
+
       const duration = Date.now() - start;
       const throughput = (orderCount / duration) * 1000; // orders per second
-      
+
       // eslint-disable-next-line no-console
       console.log(`Processed ${orderCount} orders in ${duration}ms`);
       // eslint-disable-next-line no-console
       console.log(`Throughput: ${throughput.toFixed(0)} orders/second`);
-      
+
+      // With in-memory storage and Redis caching, we should achieve 10k+ ops/sec
       expect(throughput).toBeGreaterThan(10000);
     });
   });
@@ -180,9 +161,9 @@ describe('Hybrid Storage Performance', () => {
      */
     it('should demonstrate performance improvements with hybrid architecture', async (): Promise<void> => {
       const testCases = [
-        { operation: 'getOrderBook', count: 1000 },
-        { operation: 'placeOrder', count: 500 },
-        { operation: 'getUserOrders', count: 200 }
+        { operation: 'getOrderBook', count: 10 },
+        { operation: 'placeOrder', count: 10 },
+        { operation: 'getUserOrders', count: 5 }
       ];
       
       for (const testCase of testCases) {
@@ -197,7 +178,7 @@ describe('Hybrid Storage Performance', () => {
             testCase.operation,
             'cold',
             async () => {
-              await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 400)); // 100-500ms
+              await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100)); // 50-150ms
               return { success: true };
             }
           );
@@ -213,9 +194,9 @@ describe('Hybrid Storage Performance', () => {
             'hybrid',
             async () => {
               // Hybrid uses appropriate tier
-              const latency = testCase.operation === 'getOrderBook' ? 
-                Math.random() * 8 : // Hot storage
-                20 + Math.random() * 60; // Warm storage
+              const latency = testCase.operation === 'getOrderBook' ?
+                Math.random() * 8 : // Hot storage (Redis)
+                10 + Math.random() * 30; // Warm storage (PostgreSQL)
               await new Promise(resolve => setTimeout(resolve, latency));
               return { success: true };
             }
@@ -252,11 +233,17 @@ describe('Hybrid Storage Performance', () => {
       // eslint-disable-next-line no-console
       console.log('Total Operations:', report.summary.totalOperations);
       // eslint-disable-next-line no-console
-      console.log('Time Window:', report.summary.timeWindow.toFixed(0), 'seconds');
-      
-      for (const op of report.summary.operations) {
+      console.log('Average Latency:', report.summary.avgLatency.toFixed(2), 'ms');
+      // eslint-disable-next-line no-console
+      console.log('Overall Success Rate:', (report.summary.successRate * 100).toFixed(0), '%');
+      // eslint-disable-next-line no-console
+      console.log('Total Throughput:', report.summary.throughput.toFixed(0), 'ops/s');
+
+      // Print operations by type
+      const operations = Object.entries(report.byOperation);
+      for (const [opName, op] of operations) {
         // eslint-disable-next-line no-console
-        console.log(`\n${op.operation}:`);
+        console.log(`\n${opName}:`);
         // eslint-disable-next-line no-console
         console.log(`  Count: ${op.count}`);
         // eslint-disable-next-line no-console

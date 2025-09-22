@@ -388,14 +388,18 @@ export class HybridDEXStorage extends EventEmitter {
    * @param order - The unified order to place in storage
    */
   async placeOrder(order: UnifiedOrder): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Storage not initialized');
+    }
+
     // 1. Write to hot storage immediately
     await this.writeToHotStorage(order);
-    
+
     // 2. Write to warm storage asynchronously
     this.writeToWarmStorage(order).catch(err => {
       logger.error('Failed to write order to warm storage:', err);
     });
-    
+
     // 3. Schedule archival to cold storage
     this.scheduleArchival(order);
   }
@@ -500,7 +504,7 @@ export class HybridDEXStorage extends EventEmitter {
           -1,
           { REV: true }
         );
-        
+
         const asks = await this.redis.zRangeWithScores(
           `orders:${pair}:SELL`,
           0,
@@ -538,8 +542,14 @@ export class HybridDEXStorage extends EventEmitter {
       }
     }
 
-    // 3. Fall back to warm storage
-    return this.getOrderBookFromWarmStorage(pair, depth);
+    // 3. Try PostgreSQL if available
+    const warmOrderBook = await this.getOrderBookFromWarmStorage(pair, depth);
+    if (warmOrderBook.bids.length > 0 || warmOrderBook.asks.length > 0) {
+      return warmOrderBook;
+    }
+
+    // 4. Fall back to building from in-memory activeOrders
+    return this.getOrderBookFromMemory(pair, depth);
   }
 
   /**
@@ -630,29 +640,92 @@ export class HybridDEXStorage extends EventEmitter {
   }
 
   /**
+   * Get order book from in-memory storage
+   * @param pair - Trading pair symbol
+   * @param depth - Maximum number of order book levels to return
+   * @returns Promise resolving to the order book data from memory
+   */
+  private async getOrderBookFromMemory(pair: string, depth: number): Promise<OrderBook> {
+    // Build order book from activeOrders map
+    const bidLevels = new Map<string, { quantity: bigint; count: number }>();
+    const askLevels = new Map<string, { quantity: bigint; count: number }>();
+
+    // Aggregate orders by price level
+    for (const order of this.activeOrders.values()) {
+      if (order.pair !== pair || order.status !== 'OPEN' || order.type !== 'LIMIT') continue;
+      if (order.price === undefined || order.price === null || order.price === '') continue;
+
+      const priceKey = order.price;
+      const remainingQty = parseFloat(order.remaining) * 1e18;
+
+      if (order.side === 'BUY') {
+        const existing = bidLevels.get(priceKey);
+        if (existing) {
+          existing.quantity += BigInt(Math.floor(remainingQty));
+          existing.count++;
+        } else {
+          bidLevels.set(priceKey, {
+            quantity: BigInt(Math.floor(remainingQty)),
+            count: 1
+          });
+        }
+      } else if (order.side === 'SELL') {
+        const existing = askLevels.get(priceKey);
+        if (existing) {
+          existing.quantity += BigInt(Math.floor(remainingQty));
+          existing.count++;
+        } else {
+          askLevels.set(priceKey, {
+            quantity: BigInt(Math.floor(remainingQty)),
+            count: 1
+          });
+        }
+      }
+    }
+
+    // Convert to sorted arrays
+    const bids = Array.from(bidLevels.entries())
+      .map(([price, level]) => ({
+        price,
+        quantity: fromWei(level.quantity.toString()),
+        orders: level.count
+      }))
+      .sort((a, b) => parseFloat(b.price) - parseFloat(a.price))
+      .slice(0, depth);
+
+    const asks = Array.from(askLevels.entries())
+      .map(([price, level]) => ({
+        price,
+        quantity: fromWei(level.quantity.toString()),
+        orders: level.count
+      }))
+      .sort((a, b) => parseFloat(a.price) - parseFloat(b.price))
+      .slice(0, depth);
+
+    const orderBook: OrderBook = {
+      pair,
+      bids,
+      asks,
+      timestamp: Date.now(),
+      sequence: 0,
+      sourceNodes: ['in-memory'],
+      validatorConsensus: false,
+      consensusScore: 0.5
+    };
+
+    // Update cache
+    this.orderBookCache.set(pair, orderBook);
+
+    return orderBook;
+  }
+
+  /**
    * Update order book cache
    * @param order - The unified order to update in cache
    */
   private updateOrderBookCache(order: UnifiedOrder): void {
-    const orderBook = this.orderBookCache.get(order.pair);
-    if (orderBook === null || orderBook === undefined) return;
-
-    // This is simplified - real implementation would properly aggregate
-    const level = {
-      price: order.price !== undefined && order.price !== null && order.price !== '' ? order.price : '0',
-      quantity: order.remaining,
-      orders: 1
-    };
-
-    if (order.side === 'BUY') {
-      orderBook.bids.push(level);
-      orderBook.bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
-    } else {
-      orderBook.asks.push(level);
-      orderBook.asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-    }
-
-    orderBook.timestamp = Date.now();
+    // Simply clear the cache for this pair to force rebuild on next request
+    this.orderBookCache.delete(order.pair);
   }
 
   /**
@@ -755,6 +828,9 @@ export class HybridDEXStorage extends EventEmitter {
     if (this.postgresql !== null && this.postgresql !== undefined) {
       await this.postgresql.end();
     }
+
+    // Mark as not initialized to prevent further operations
+    this.isInitialized = false;
 
     logger.info('✅ Hybrid storage shutdown complete');
   }

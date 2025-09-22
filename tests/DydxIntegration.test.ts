@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
+import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 import { 
   DydxIntegration,
   MockERC20,
@@ -20,10 +20,10 @@ import {
  * - Advanced order types
  */
 describe('DYDX Integration', function() {
-  let owner: SignerWithAddress;
-  let trader1: SignerWithAddress;
-  let trader2: SignerWithAddress;
-  let liquidator: SignerWithAddress;
+  let owner: HardhatEthersSigner;
+  let trader1: HardhatEthersSigner;
+  let trader2: HardhatEthersSigner;
+  let liquidator: HardhatEthersSigner;
   
   let dydxIntegration: DydxIntegration;
   let dexRegistry: DEXRegistry;
@@ -32,7 +32,7 @@ describe('DYDX Integration', function() {
   let wbtc: MockERC20;
   let weth: MockERC20;
 
-  const INITIAL_BALANCE = ethers.utils.parseEther('100000');
+  const INITIAL_BALANCE = ethers.parseEther('100000');
   const USDC_DECIMALS = 6;
   const BTC_DECIMALS = 8;
   

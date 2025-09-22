@@ -1,16 +1,16 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { DEXRegistry, PairFactory, FeeCollector } from "../typechain-types";
 
 describe("DEXRegistry", function () {
   let dexRegistry: DEXRegistry;
   let pairFactory: PairFactory;
   let feeCollector: FeeCollector;
-  let owner: SignerWithAddress;
-  let operator: SignerWithAddress;
-  let user1: SignerWithAddress;
-  let user2: SignerWithAddress;
+  let owner: HardhatEthersSigner;
+  let operator: HardhatEthersSigner;
+  let user1: HardhatEthersSigner;
+  let user2: HardhatEthersSigner;
 
   beforeEach(async function () {
     [owner, operator, user1, user2] = await ethers.getSigners();
@@ -18,30 +18,33 @@ describe("DEXRegistry", function () {
     // Deploy contracts
     const FeeCollectorFactory = await ethers.getContractFactory("FeeCollector");
     feeCollector = await FeeCollectorFactory.deploy();
-    await feeCollector.deployed();
+    await feeCollector.waitForDeployment();
 
     const PairFactoryFactory = await ethers.getContractFactory("PairFactory");
     pairFactory = await PairFactoryFactory.deploy();
-    await pairFactory.deployed();
+    await pairFactory.waitForDeployment();
 
     const DEXRegistryFactory = await ethers.getContractFactory("DEXRegistry");
     dexRegistry = await DEXRegistryFactory.deploy();
-    await dexRegistry.deployed();
+    await dexRegistry.waitForDeployment();
 
     // Initialize contracts
-    await dexRegistry.initialize(pairFactory.address, feeCollector.address);
+    await dexRegistry.initialize(await pairFactory.getAddress(), await feeCollector.getAddress());
+
+    // Set registry in PairFactory
+    await pairFactory.setRegistry(await dexRegistry.getAddress());
   });
 
   describe("Initialization", function () {
     it("Should initialize with correct addresses", async function () {
-      expect(await dexRegistry.pairFactory()).to.equal(pairFactory.address);
-      expect(await dexRegistry.feeCollector()).to.equal(feeCollector.address);
+      expect(await dexRegistry.pairFactory()).to.equal(await pairFactory.getAddress());
+      expect(await dexRegistry.feeCollector()).to.equal(await feeCollector.getAddress());
       expect(await dexRegistry.owner()).to.equal(owner.address);
     });
 
     it("Should not allow re-initialization", async function () {
       await expect(
-        dexRegistry.initialize(pairFactory.address, feeCollector.address)
+        dexRegistry.initialize(await pairFactory.getAddress(), await feeCollector.getAddress())
       ).to.be.revertedWith("Already initialized");
     });
   });
@@ -68,7 +71,7 @@ describe("DEXRegistry", function () {
     it("Should not allow non-owner to manage operators", async function () {
       await expect(
         dexRegistry.connect(user1).addOperator(operator.address)
-      ).to.be.revertedWith("Ownable: caller is not the owner");
+      ).to.be.revertedWithCustomError(dexRegistry, "OwnableUnauthorizedAccount");
     });
   });
 
@@ -81,9 +84,11 @@ describe("DEXRegistry", function () {
       const MockToken = await ethers.getContractFactory("MockERC20");
       const tokenA = await MockToken.deploy("Token A", "TKA", 18);
       const tokenB = await MockToken.deploy("Token B", "TKB", 18);
-      
-      token1 = tokenA.address;
-      token2 = tokenB.address;
+      await tokenA.waitForDeployment();
+      await tokenB.waitForDeployment();
+
+      token1 = await tokenA.getAddress();
+      token2 = await tokenB.getAddress();
     });
 
     it("Should register new trading pair", async function () {
@@ -161,7 +166,7 @@ describe("DEXRegistry", function () {
     it("Should only allow owner to pause", async function () {
       await expect(
         dexRegistry.connect(user1).pauseTrading()
-      ).to.be.revertedWith("Ownable: caller is not the owner");
+      ).to.be.revertedWithCustomError(dexRegistry, "OwnableUnauthorizedAccount");
     });
   });
 
@@ -170,7 +175,7 @@ describe("DEXRegistry", function () {
       const config = await dexRegistry.getFeeConfiguration();
       expect(config.makerFee).to.equal(10); // Default 0.1%
       expect(config.takerFee).to.equal(20); // Default 0.2%
-      expect(config.feeCollector).to.equal(feeCollector.address);
+      expect(config.feeCollector).to.equal(await feeCollector.getAddress());
     });
 
     it("Should check if address is operator", async function () {

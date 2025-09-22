@@ -215,7 +215,8 @@ describe('PerpetualEngine', () => {
       expect(updatedPosition.realizedPnl).toBe(BigInt(60) * BigInt(1e18)); // 0.03 * ($52k - $50k)
 
       // Margin should be proportionally reduced
-      expect(updatedPosition.margin).toBeLessThan(position.margin);
+      // Original margin: 500, closing 30%, so remaining margin should be 70% = 350
+      expect(updatedPosition.margin).toBe(BigInt(350) * BigInt(1e18));
     });
 
     it('should close position with custom price', () => {
@@ -277,25 +278,33 @@ describe('PerpetualEngine', () => {
       const leverageUpdatedListener = jest.fn();
       engine.on('position:leverageUpdated', leverageUpdatedListener);
 
+      // Store original values before update
+      const originalLiquidationPrice = position.liquidationPrice;
+
       const updatedPosition = engine.updateLeverage(position.id, 20);
 
       expect(updatedPosition.leverage).toBe(20);
       expect(updatedPosition.margin).toBe(BigInt(250) * BigInt(1e18)); // $5000 / 20
 
       // Liquidation price should be closer to entry price with higher leverage
-      expect(updatedPosition.liquidationPrice).toBeLessThan(position.liquidationPrice);
+      // For LONG: higher leverage = higher liquidation price (closer to entry)
+      expect(updatedPosition.liquidationPrice).toBeGreaterThan(originalLiquidationPrice);
 
       expect(leverageUpdatedListener).toHaveBeenCalledWith(updatedPosition);
     });
 
     it('should decrease leverage', () => {
+      // Store original values before update
+      const originalLiquidationPrice = position.liquidationPrice;
+
       const updatedPosition = engine.updateLeverage(position.id, 5);
 
       expect(updatedPosition.leverage).toBe(5);
       expect(updatedPosition.margin).toBe(BigInt(1000) * BigInt(1e18)); // $5000 / 5
 
       // Liquidation price should be further from entry price with lower leverage
-      expect(updatedPosition.liquidationPrice).toBeGreaterThan(position.liquidationPrice);
+      // For LONG: lower leverage = lower liquidation price (further from entry)
+      expect(updatedPosition.liquidationPrice).toBeLessThan(originalLiquidationPrice);
     });
 
     it('should reject leverage exceeding maximum', () => {

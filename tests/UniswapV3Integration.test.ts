@@ -1,16 +1,15 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { UniswapV3Integration, MockERC20 } from "../typechain-types";
-import { BigNumber } from "ethers";
 
 describe("UniswapV3Integration", function () {
   let integration: UniswapV3Integration;
   let tokenA: MockERC20;
   let tokenB: MockERC20;
-  let owner: SignerWithAddress;
-  let user: SignerWithAddress;
-  let liquidityProvider: SignerWithAddress;
+  let owner: HardhatEthersSigner;
+  let user: HardhatEthersSigner;
+  let liquidityProvider: HardhatEthersSigner;
 
   // Mock Uniswap V3 addresses (would be actual addresses on mainnet/testnet)
   const UNISWAP_ROUTER = "0x0000000000000000000000000000000000000001";
@@ -24,8 +23,8 @@ describe("UniswapV3Integration", function () {
     const MockToken = await ethers.getContractFactory("MockERC20");
     tokenA = await MockToken.deploy("Token A", "TKA", 18);
     tokenB = await MockToken.deploy("Token B", "TKB", 18);
-    await tokenA.deployed();
-    await tokenB.deployed();
+    await tokenA.waitForDeployment();
+    await tokenB.waitForDeployment();
 
     // Deploy UniswapV3Integration
     const UniswapV3IntegrationFactory = await ethers.getContractFactory("UniswapV3Integration");
@@ -34,31 +33,39 @@ describe("UniswapV3Integration", function () {
       UNISWAP_FACTORY,
       UNISWAP_POSITION_MANAGER
     );
-    await integration.deployed();
+    await integration.waitForDeployment();
+
+    // Get contract addresses
+    const tokenAAddress = await tokenA.getAddress();
+    const tokenBAddress = await tokenB.getAddress();
+    const integrationAddress = await integration.getAddress();
+    const userAddress = userAddress;
+    const liquidityProviderAddress = liquidityProviderAddress;
+    const ownerAddress = ownerAddress;
 
     // Mint tokens
-    const mintAmount = ethers.utils.parseEther("100000");
-    await tokenA.mint(user.address, mintAmount);
-    await tokenB.mint(user.address, mintAmount);
-    await tokenA.mint(liquidityProvider.address, mintAmount);
-    await tokenB.mint(liquidityProvider.address, mintAmount);
+    const mintAmount = ethers.parseEther("100000");
+    await tokenA.mint(userAddress, mintAmount);
+    await tokenB.mint(userAddress, mintAmount);
+    await tokenA.mint(liquidityProviderAddress, mintAmount);
+    await tokenB.mint(liquidityProviderAddress, mintAmount);
 
     // Approve integration contract
-    await tokenA.connect(user).approve(integration.address, ethers.constants.MaxUint256);
-    await tokenB.connect(user).approve(integration.address, ethers.constants.MaxUint256);
-    await tokenA.connect(liquidityProvider).approve(integration.address, ethers.constants.MaxUint256);
-    await tokenB.connect(liquidityProvider).approve(integration.address, ethers.constants.MaxUint256);
+    await tokenA.connect(user).approve(integrationAddress, ethers.MaxUint256);
+    await tokenB.connect(user).approve(integrationAddress, ethers.MaxUint256);
+    await tokenA.connect(liquidityProvider).approve(integrationAddress, ethers.MaxUint256);
+    await tokenB.connect(liquidityProvider).approve(integrationAddress, ethers.MaxUint256);
   });
 
   describe("Swap Operations", function () {
     it("Should quote swap amounts", async function () {
-      const amountIn = ethers.utils.parseEther("100");
+      const amountIn = ethers.parseEther("100");
       const fee = 3000; // 0.3%
 
       // Note: In real tests, this would interact with actual Uniswap contracts
       const quotedAmount = await integration.quoteExactInputSingle(
-        tokenA.address,
-        tokenB.address,
+        await tokenA.getAddress(),
+        await tokenB.getAddress(),
         fee,
         amountIn
       );
@@ -67,20 +74,20 @@ describe("UniswapV3Integration", function () {
     });
 
     it("Should execute exact input swap", async function () {
-      const amountIn = ethers.utils.parseEther("100");
-      const amountOutMinimum = ethers.utils.parseEther("195"); // Expecting ~196 with 2% slippage
+      const amountIn = ethers.parseEther("100");
+      const amountOutMinimum = ethers.parseEther("195"); // Expecting ~196 with 2% slippage
       const fee = 3000;
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
-      const initialBalanceA = await tokenA.balanceOf(user.address);
-      const initialBalanceB = await tokenB.balanceOf(user.address);
+      const initialBalanceA = await tokenA.balanceOf(userAddress);
+      const initialBalanceB = await tokenB.balanceOf(userAddress);
 
       await expect(
         integration.connect(user).exactInputSingle({
-          tokenIn: tokenA.address,
-          tokenOut: tokenB.address,
+          tokenIn: await tokenA.getAddress(),
+          tokenOut: await tokenB.getAddress(),
           fee: fee,
-          recipient: user.address,
+          recipient: userAddress,
           deadline: deadline,
           amountIn: amountIn,
           amountOutMinimum: amountOutMinimum,
@@ -89,22 +96,22 @@ describe("UniswapV3Integration", function () {
       ).to.emit(integration, "SwapExecuted");
 
       // Check balances changed
-      expect(await tokenA.balanceOf(user.address)).to.equal(initialBalanceA.sub(amountIn));
-      expect(await tokenB.balanceOf(user.address)).to.be.gt(initialBalanceB.add(amountOutMinimum));
+      expect(await tokenA.balanceOf(userAddress)).to.equal(initialBalanceA - amountIn);
+      expect(await tokenB.balanceOf(userAddress)).to.be.gt(initialBalanceB + amountOutMinimum);
     });
 
     it("Should execute exact output swap", async function () {
-      const amountOut = ethers.utils.parseEther("100");
-      const amountInMaximum = ethers.utils.parseEther("52"); // Max willing to pay
+      const amountOut = ethers.parseEther("100");
+      const amountInMaximum = ethers.parseEther("52"); // Max willing to pay
       const fee = 3000;
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       await expect(
         integration.connect(user).exactOutputSingle({
-          tokenIn: tokenA.address,
-          tokenOut: tokenB.address,
+          tokenIn: await tokenA.getAddress(),
+          tokenOut: await tokenB.getAddress(),
           fee: fee,
-          recipient: user.address,
+          recipient: userAddress,
           deadline: deadline,
           amountOut: amountOut,
           amountInMaximum: amountInMaximum,
@@ -115,21 +122,21 @@ describe("UniswapV3Integration", function () {
 
     it("Should execute multi-hop swap", async function () {
       const tokenC = await (await ethers.getContractFactory("MockERC20")).deploy("Token C", "TKC", 18);
-      await tokenC.deployed();
+      await tokenC.waitForDeployment();
 
-      const path = ethers.utils.solidityPack(
+      const path = ethers.solidityPack(
         ["address", "uint24", "address", "uint24", "address"],
-        [tokenA.address, 3000, tokenB.address, 3000, tokenC.address]
+        [await tokenA.getAddress(), 3000, await tokenB.getAddress(), 3000, await tokenC.getAddress()]
       );
 
-      const amountIn = ethers.utils.parseEther("100");
-      const amountOutMinimum = ethers.utils.parseEther("90");
+      const amountIn = ethers.parseEther("100");
+      const amountOutMinimum = ethers.parseEther("90");
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       await expect(
         integration.connect(user).exactInput({
           path: path,
-          recipient: user.address,
+          recipient: userAddress,
           deadline: deadline,
           amountIn: amountIn,
           amountOutMinimum: amountOutMinimum
@@ -138,17 +145,17 @@ describe("UniswapV3Integration", function () {
     });
 
     it("Should revert on excessive slippage", async function () {
-      const amountIn = ethers.utils.parseEther("100");
-      const amountOutMinimum = ethers.utils.parseEther("300"); // Unrealistic expectation
+      const amountIn = ethers.parseEther("100");
+      const amountOutMinimum = ethers.parseEther("300"); // Unrealistic expectation
       const fee = 3000;
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       await expect(
         integration.connect(user).exactInputSingle({
-          tokenIn: tokenA.address,
-          tokenOut: tokenB.address,
+          tokenIn: await tokenA.getAddress(),
+          tokenOut: await tokenB.getAddress(),
           fee: fee,
-          recipient: user.address,
+          recipient: userAddress,
           deadline: deadline,
           amountIn: amountIn,
           amountOutMinimum: amountOutMinimum,
@@ -158,17 +165,17 @@ describe("UniswapV3Integration", function () {
     });
 
     it("Should revert on expired deadline", async function () {
-      const amountIn = ethers.utils.parseEther("100");
-      const amountOutMinimum = ethers.utils.parseEther("195");
+      const amountIn = ethers.parseEther("100");
+      const amountOutMinimum = ethers.parseEther("195");
       const fee = 3000;
       const deadline = Math.floor(Date.now() / 1000) - 3600; // Past deadline
 
       await expect(
         integration.connect(user).exactInputSingle({
-          tokenIn: tokenA.address,
-          tokenOut: tokenB.address,
+          tokenIn: await tokenA.getAddress(),
+          tokenOut: await tokenB.getAddress(),
           fee: fee,
-          recipient: user.address,
+          recipient: userAddress,
           deadline: deadline,
           amountIn: amountIn,
           amountOutMinimum: amountOutMinimum,
@@ -180,10 +187,10 @@ describe("UniswapV3Integration", function () {
 
   describe("Liquidity Management", function () {
     it("Should add liquidity to pool", async function () {
-      const amount0Desired = ethers.utils.parseEther("1000");
-      const amount1Desired = ethers.utils.parseEther("2000");
-      const amount0Min = ethers.utils.parseEther("990");
-      const amount1Min = ethers.utils.parseEther("1980");
+      const amount0Desired = ethers.parseEther("1000");
+      const amount1Desired = ethers.parseEther("2000");
+      const amount0Min = ethers.parseEther("990");
+      const amount1Min = ethers.parseEther("1980");
       const fee = 3000;
       const tickLower = -60000;
       const tickUpper = 60000;
@@ -191,8 +198,8 @@ describe("UniswapV3Integration", function () {
 
       await expect(
         integration.connect(liquidityProvider).mintPosition({
-          token0: tokenA.address,
-          token1: tokenB.address,
+          token0: await tokenA.getAddress(),
+          token1: await tokenB.getAddress(),
           fee: fee,
           tickLower: tickLower,
           tickUpper: tickUpper,
@@ -200,7 +207,7 @@ describe("UniswapV3Integration", function () {
           amount1Desired: amount1Desired,
           amount0Min: amount0Min,
           amount1Min: amount1Min,
-          recipient: liquidityProvider.address,
+          recipient: liquidityProviderAddress,
           deadline: deadline
         })
       ).to.emit(integration, "LiquidityAdded");
@@ -209,9 +216,9 @@ describe("UniswapV3Integration", function () {
     it("Should remove liquidity from pool", async function () {
       // First add liquidity
       const tokenId = 1; // Assume we have position NFT
-      const liquidity = ethers.utils.parseEther("100");
-      const amount0Min = ethers.utils.parseEther("90");
-      const amount1Min = ethers.utils.parseEther("180");
+      const liquidity = ethers.parseEther("100");
+      const amount0Min = ethers.parseEther("90");
+      const amount1Min = ethers.parseEther("180");
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       await expect(
@@ -227,13 +234,13 @@ describe("UniswapV3Integration", function () {
 
     it("Should collect fees from position", async function () {
       const tokenId = 1; // Assume we have position NFT
-      const amount0Max = ethers.constants.MaxUint256;
-      const amount1Max = ethers.constants.MaxUint256;
+      const amount0Max = ethers.MaxUint256;
+      const amount1Max = ethers.MaxUint256;
 
       await expect(
         integration.connect(liquidityProvider).collectFees({
           tokenId: tokenId,
-          recipient: liquidityProvider.address,
+          recipient: liquidityProviderAddress,
           amount0Max: amount0Max,
           amount1Max: amount1Max
         })
@@ -243,7 +250,7 @@ describe("UniswapV3Integration", function () {
 
   describe("Price Oracle", function () {
     it("Should get TWAP price", async function () {
-      const pool = tokenA.address; // Mock pool address
+      const pool = await tokenA.getAddress(); // Mock pool address
       const twapInterval = 1800; // 30 minutes
 
       const twapPrice = await integration.getTWAP(pool, twapInterval);
@@ -252,15 +259,15 @@ describe("UniswapV3Integration", function () {
 
     it("Should get spot price", async function () {
       const spotPrice = await integration.getSpotPrice(
-        tokenA.address,
-        tokenB.address,
+        await tokenA.getAddress(),
+        await tokenB.getAddress(),
         3000 // fee tier
       );
       expect(spotPrice).to.be.gt(0);
     });
 
     it("Should detect price manipulation", async function () {
-      const pool = tokenA.address; // Mock pool address
+      const pool = await tokenA.getAddress(); // Mock pool address
       const maxDeviation = 500; // 5%
 
       const isSafe = await integration.isPriceManipulated(pool, maxDeviation);
@@ -270,42 +277,42 @@ describe("UniswapV3Integration", function () {
 
   describe("Flash Swap", function () {
     it("Should execute flash swap", async function () {
-      const amount = ethers.utils.parseEther("1000");
+      const amount = ethers.parseEther("1000");
       const fee = 3000;
 
       // Deploy flash swap receiver
       const FlashSwapReceiver = await ethers.getContractFactory("MockFlashSwapReceiver");
       const receiver = await FlashSwapReceiver.deploy();
-      await receiver.deployed();
+      await receiver.waitForDeployment();
 
       await expect(
         integration.connect(user).flashSwap(
-          tokenA.address,
-          tokenB.address,
+          await tokenA.getAddress(),
+          await tokenB.getAddress(),
           fee,
           amount,
-          receiver.address,
+          await receiver.getAddress(),
           "0x" // callback data
         )
       ).to.emit(integration, "FlashSwapExecuted");
     });
 
     it("Should revert if flash swap not repaid", async function () {
-      const amount = ethers.utils.parseEther("1000");
+      const amount = ethers.parseEther("1000");
       const fee = 3000;
 
       // Deploy malicious receiver that doesn't repay
       const MaliciousReceiver = await ethers.getContractFactory("MaliciousFlashSwapReceiver");
       const receiver = await MaliciousReceiver.deploy();
-      await receiver.deployed();
+      await receiver.waitForDeployment();
 
       await expect(
         integration.connect(user).flashSwap(
-          tokenA.address,
-          tokenB.address,
+          await tokenA.getAddress(),
+          await tokenB.getAddress(),
           fee,
           amount,
-          receiver.address,
+          await receiver.getAddress(),
           "0x"
         )
       ).to.be.revertedWith("Flash swap not repaid");
@@ -316,17 +323,17 @@ describe("UniswapV3Integration", function () {
     it("Should pause swaps", async function () {
       await integration.connect(owner).pauseSwaps();
       
-      const amountIn = ethers.utils.parseEther("100");
-      const amountOutMinimum = ethers.utils.parseEther("195");
+      const amountIn = ethers.parseEther("100");
+      const amountOutMinimum = ethers.parseEther("195");
       const fee = 3000;
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       await expect(
         integration.connect(user).exactInputSingle({
-          tokenIn: tokenA.address,
-          tokenOut: tokenB.address,
+          tokenIn: await tokenA.getAddress(),
+          tokenOut: await tokenB.getAddress(),
           fee: fee,
-          recipient: user.address,
+          recipient: userAddress,
           deadline: deadline,
           amountIn: amountIn,
           amountOutMinimum: amountOutMinimum,
@@ -337,18 +344,18 @@ describe("UniswapV3Integration", function () {
 
     it("Should emergency withdraw tokens", async function () {
       // Send tokens to contract
-      const amount = ethers.utils.parseEther("100");
-      await tokenA.connect(user).transfer(integration.address, amount);
+      const amount = ethers.parseEther("100");
+      await tokenA.connect(user).transfer(integrationAddress, amount);
 
-      const initialBalance = await tokenA.balanceOf(owner.address);
+      const initialBalance = await tokenA.balanceOf(ownerAddress);
       
       await integration.connect(owner).emergencyWithdraw(
-        tokenA.address,
-        owner.address,
+        await tokenA.getAddress(),
+        ownerAddress,
         amount
       );
 
-      expect(await tokenA.balanceOf(owner.address)).to.equal(initialBalance.add(amount));
+      expect(await tokenA.balanceOf(ownerAddress)).to.equal(initialBalance + amount);
     });
   });
 
@@ -364,13 +371,13 @@ describe("UniswapV3Integration", function () {
     });
 
     it("Should collect protocol fees", async function () {
-      const collectedFees = await integration.getCollectedFees(tokenA.address);
+      const collectedFees = await integration.getCollectedFees(await tokenA.getAddress());
       
-      if (collectedFees.gt(0)) {
+      if (collectedFees > 0n) {
         await expect(
           integration.connect(owner).withdrawProtocolFees(
-            tokenA.address,
-            owner.address
+            await tokenA.getAddress(),
+            ownerAddress
           )
         ).to.emit(integration, "ProtocolFeesWithdrawn");
       }

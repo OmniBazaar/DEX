@@ -352,9 +352,13 @@ export class PerpetualEngine extends EventEmitter {
       position.size = 0n;
     } else {
       // Partial close
-      position.size -= closeSize;
+      const remainingSize = position.size - closeSize;
+      // Calculate remaining margin proportionally
+      const closeRatio = closeSize * BigInt(1e18) / position.size;
+      const marginToReturn = (position.margin * closeRatio) / BigInt(1e18);
+      position.size = remainingSize;
       position.realizedPnl += pnl;
-      position.margin = (position.margin * position.size) / (position.size + closeSize);
+      position.margin = position.margin - marginToReturn;
     }
 
     // Update open interest
@@ -401,8 +405,12 @@ export class PerpetualEngine extends EventEmitter {
       throw new Error(`Leverage ${newLeverage} exceeds maximum ${market.maxLeverage}`);
     }
 
-    const notionalValue = (position.size * position.markPrice) / BigInt(1e18);
-    const newMargin = notionalValue / BigInt(newLeverage);
+    // Calculate required margin based on current position value
+    // When leverage decreases, margin must increase proportionally
+    // margin = notional / leverage, so if leverage halves, margin doubles
+    const oldLeverage = BigInt(position.leverage);
+    const newLeverageBig = BigInt(newLeverage);
+    const newMargin = (position.margin * oldLeverage) / newLeverageBig;
 
     // Update position
     position.leverage = newLeverage;
@@ -436,6 +444,10 @@ export class PerpetualEngine extends EventEmitter {
         // Calculate funding rate based on mark vs index price
         const markPrice = this.getMarkPrice(marketSymbol);
         const indexPrice = this.getIndexPrice(marketSymbol);
+        // Guard against zero index price
+        if (indexPrice === 0n) {
+          continue;
+        }
         const premium = (markPrice - indexPrice) * BigInt(1e18) / indexPrice;
         
         // Clamp funding rate to maximum
@@ -453,7 +465,7 @@ export class PerpetualEngine extends EventEmitter {
             let fundingPayment = (notionalValue * fundingRateValue) / BigInt(1e18);
             
             // Longs pay shorts when funding is positive
-            if (position.side === 'SHORT') {
+            if (position.side === 'LONG') {
               fundingPayment = -fundingPayment;
             }
             
@@ -563,15 +575,17 @@ export class PerpetualEngine extends EventEmitter {
   }): bigint {
     const { entryPrice, side, leverage, maintenanceMargin } = params;
     const maintenanceMarginRatio = BigInt(Math.floor(maintenanceMargin * 1e18 / 100));
-    
+
     if (side === 'LONG') {
-      // Long liquidation: price * (1 - 1/leverage + maintenanceMargin)
-      const factor = BigInt(1e18) - BigInt(1e18) / BigInt(leverage) + maintenanceMarginRatio;
-      return (entryPrice * factor) / BigInt(1e18);
+      // Long liquidation: price drops by (100% - maintenance margin) / leverage
+      // Lower leverage = lower liquidation price (further from entry)
+      const maxLoss = (BigInt(1e18) - maintenanceMarginRatio) / BigInt(leverage);
+      return (entryPrice * (BigInt(1e18) - maxLoss)) / BigInt(1e18);
     } else {
-      // Short liquidation: price * (1 + 1/leverage - maintenanceMargin)
-      const factor = BigInt(1e18) + BigInt(1e18) / BigInt(leverage) - maintenanceMarginRatio;
-      return (entryPrice * factor) / BigInt(1e18);
+      // Short liquidation: price rises by (100% - maintenance margin) / leverage
+      // Lower leverage = higher liquidation price (further from entry)
+      const maxLoss = (BigInt(1e18) - maintenanceMarginRatio) / BigInt(leverage);
+      return (entryPrice * (BigInt(1e18) + maxLoss)) / BigInt(1e18);
     }
   }
 
@@ -622,6 +636,33 @@ export class PerpetualEngine extends EventEmitter {
    */
   updateIndexPrice(market: string, price: bigint): void {
     this.indexPrices.set(market, price);
+
+    // Update funding rate calculation immediately
+    const markPrice = this.getMarkPrice(market);
+    if (markPrice > 0n && price > 0n) {
+      const fundingRate = this.fundingRates.get(market);
+      if (fundingRate) {
+        // Calculate funding rate based on mark vs index price
+        const premium = (markPrice - price) * BigInt(1e18) / price;
+
+        // Get market info for max funding rate
+        const marketInfo = this.markets.get(market);
+        if (marketInfo) {
+          // Clamp funding rate to maximum (8-hour rate from 24-hour premium)
+          let fundingRateValue = premium / BigInt(24);
+          if (fundingRateValue > marketInfo.maxFundingRate) {
+            fundingRateValue = marketInfo.maxFundingRate;
+          } else if (fundingRateValue < -marketInfo.maxFundingRate) {
+            fundingRateValue = -marketInfo.maxFundingRate;
+          }
+
+          fundingRate.rate = fundingRateValue;
+          fundingRate.markPrice = markPrice;
+          fundingRate.indexPrice = price;
+        }
+      }
+    }
+
     this.emit('indexPrice:updated', { market, price });
   }
 
@@ -695,6 +736,42 @@ export class PerpetualEngine extends EventEmitter {
    */
   getInsuranceFund(): bigint {
     return this.insuranceFund;
+  }
+
+  /**
+   * Process funding payments for all markets
+   * @remarks This is normally called automatically based on funding intervals
+   * @public For testing purposes
+   */
+  async processFundingPayments(): Promise<void> {
+    const now = Date.now();
+
+    // For testing, force immediate funding processing
+    for (const [marketSymbol, fundingRate] of this.fundingRates) {
+      const market = this.markets.get(marketSymbol);
+      if (!market) continue;
+
+      // Use existing funding rate if set, otherwise keep at 0
+      if (fundingRate.rate === 0n) continue;
+
+      const markPrice = this.getMarkPrice(marketSymbol);
+
+      // Apply funding to all positions
+      for (const position of this.positions.values()) {
+        if (position.market === marketSymbol && position.status === 'OPEN') {
+          const notionalValue = (position.size * markPrice) / BigInt(1e18);
+          let fundingPayment = (notionalValue * fundingRate.rate) / BigInt(1e18);
+
+          // Longs pay shorts when funding is positive
+          if (position.side === 'LONG') {
+            fundingPayment = -fundingPayment;
+          }
+
+          position.fundingPayment += fundingPayment;
+          position.lastFundingAt = now;
+        }
+      }
+    }
   }
 
   /**

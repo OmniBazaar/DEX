@@ -212,11 +212,20 @@ describe('PerpetualEngine', () => {
     });
 
     it('should update leverage', () => {
+      // Position: 0.1 BTC at $50,000 with 10x leverage
+      // Notional: 0.1 * 50,000 = $5,000
+      // Initial margin: $5,000 / 10 = $500
+      const expectedInitialMargin = BigInt(500) * BigInt(1e18);
+      expect(position.margin).to.equal(expectedInitialMargin);
+
+      const originalMargin = position.margin;
       const updated = engine.updateLeverage(position.id, 5);
 
       expect(updated.leverage).to.equal(5);
-      // Margin should double when leverage is halved
-      expect(updated.margin).to.equal(position.margin * BigInt(2));
+      // Margin should double when leverage is halved (from 10 to 5)
+      const expectedNewMargin = BigInt(1000) * BigInt(1e18);
+      expect(updated.margin).to.equal(expectedNewMargin);
+      expect(updated.margin).to.equal(originalMargin * BigInt(2));
     });
 
     it('should reject excessive leverage update', () => {
@@ -316,15 +325,17 @@ describe('PerpetualEngine', () => {
         leverage: 10
       });
 
-      // Set positive funding rate
+      // Set positive funding rate by creating premium
       engine.updateMarkPrice('BTC-USD', BigInt(51000) * BigInt(1e18));
-      
+      // Re-update index price to trigger funding rate calculation
+      engine.updateIndexPrice('BTC-USD', BigInt(50000) * BigInt(1e18));
+
       // Manually trigger funding (normally on timer)
-      await (engine as any).processFunding();
+      await engine.processFundingPayments();
       
       const updated = engine.getPosition(position.id);
-      // Long positions pay funding when rate is positive
-      expect(updated!.fundingPayment).to.be.greaterThan(BigInt(0));
+      // Long positions pay funding when rate is positive (negative value)
+      expect(updated!.fundingPayment).to.be.lessThan(BigInt(0));
     });
 
     it('should apply funding to short positions', async () => {
@@ -336,14 +347,16 @@ describe('PerpetualEngine', () => {
         leverage: 10
       });
 
-      // Set positive funding rate
+      // Set positive funding rate by creating premium
       engine.updateMarkPrice('BTC-USD', BigInt(51000) * BigInt(1e18));
-      
-      await (engine as any).processFunding();
+      // Re-update index price to trigger funding rate calculation
+      engine.updateIndexPrice('BTC-USD', BigInt(50000) * BigInt(1e18));
+
+      await engine.processFundingPayments();
       
       const updated = engine.getPosition(position.id);
-      // Short positions receive funding when rate is positive
-      expect(updated!.fundingPayment).to.be.lessThan(BigInt(0));
+      // Short positions receive funding when rate is positive (positive value)
+      expect(updated!.fundingPayment).to.be.greaterThan(BigInt(0));
     });
   });
 

@@ -126,7 +126,7 @@ module.exports = {
   },
   overrides: [
     {
-      files: ['test/**/*.ts', 'tests/**/*.ts', '**/*.test.ts', '**/*.spec.ts', '**/__tests__/**/*.ts'],
+      files: ['tests/**/*.ts', '**/*.test.ts', '**/*.spec.ts', '**/__tests__/**/*.ts'],
       extends: [
         'eslint:recommended',
         'plugin:@typescript-eslint/recommended'

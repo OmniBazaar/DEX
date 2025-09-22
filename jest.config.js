@@ -10,8 +10,14 @@ module.exports = {
   roots: ['<rootDir>/src', '<rootDir>/tests'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: 'tsconfig.test.json'
+    }],
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!(@validator|@bazaar|@coin|@wallet)/)'
+  ],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
@@ -33,24 +39,13 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     // Map to actual Validator module implementations
+    '^@validator/(.*)\\.(js|jsx)$': '<rootDir>/../Validator/src/$1.ts',
     '^@validator/(.*)$': '<rootDir>/../Validator/src/$1',
     '^@bazaar/(.*)$': '<rootDir>/../Bazaar/src/$1',
     '^@coin/(.*)$': '<rootDir>/../Coin/src/$1',
     '^@wallet/(.*)$': '<rootDir>/../Wallet/src/$1'
   },
   
-  // Globals for test environment
-  globals: {
-    'ts-jest': {
-      tsconfig: {
-        esModuleInterop: true,
-        allowSyntheticDefaultImports: true,
-        target: 'ES2022',
-        lib: ['ES2022'],
-        module: 'commonjs'
-      }
-    }
-  },
   
   // Ignore patterns
   testPathIgnorePatterns: [

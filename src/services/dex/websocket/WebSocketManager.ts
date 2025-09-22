@@ -90,6 +90,7 @@ export class WebSocketManager extends EventEmitter {
   private subscriptions = new Map<string, Set<SubscriptionCallback>>();
   private pingInterval?: NodeJS.Timeout;
   private isReconnecting = false;
+  private reconnectEnabled = true;
 
   constructor(url?: string) {
     super();
@@ -112,7 +113,18 @@ export class WebSocketManager extends EventEmitter {
 
         this.ws = new WebSocket(this.url, { headers });
 
+        // Track if we've resolved/rejected to avoid double handling
+        let handled = false;
+
+        const cleanup = () => {
+          // Remove all listeners to prevent memory leaks
+          this.ws?.removeAllListeners();
+        };
+
         this.ws.on('open', () => {
+          if (handled) return;
+          handled = true;
+
           this.reconnectAttempts = 0;
           this.isReconnecting = false;
           this.emit('connected');
@@ -137,15 +149,33 @@ export class WebSocketManager extends EventEmitter {
           this.stopPing();
           this.emit('disconnected');
 
-          if (!this.isReconnecting) {
+          if (!this.isReconnecting && this.reconnectEnabled) {
             this.reconnect();
           }
         });
 
         this.ws.on('error', (error) => {
-          this.emit('error', error);
-          reject(error);
+          // During connection, reject the promise
+          if (!handled) {
+            handled = true;
+            cleanup();
+            reject(error);
+          }
+          // After connection, emit the error for listeners
+          else {
+            this.emit('error', error);
+          }
         });
+
+        // Add timeout for connection
+        setTimeout(() => {
+          if (!handled) {
+            handled = true;
+            cleanup();
+            this.ws?.close();
+            reject(new Error('WebSocket connection timeout'));
+          }
+        }, 10000); // 10 second timeout
       } catch (error) {
         reject(error);
       }
@@ -156,6 +186,7 @@ export class WebSocketManager extends EventEmitter {
    * Disconnect from WebSocket server
    */
   disconnect(): void {
+    this.reconnectEnabled = false;
     this.isReconnecting = false;
     this.stopPing();
 
