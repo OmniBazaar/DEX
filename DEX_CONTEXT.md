@@ -407,7 +407,7 @@ const display = fromWei(result); // "100.5"
 - Build: `npm run build`
 - Test: `npm test`
 - Dev: `npm run dev`
-- Lint: `npm run lint` (Do not use 'eslint --fix')
+- Lint: `npm run lint`
 
 **Key Locations:**
 - Order matching: Validator/src/services/dex/DecentralizedOrderBook.ts
