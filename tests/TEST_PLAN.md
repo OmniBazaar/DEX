@@ -13,11 +13,11 @@ This document outlines the complete testing strategy for the OmniBazaar DEX modu
   - [ ] FeeCollector.sol - Fee distribution
   - [ ] DEXGovernance.sol - Governance functions
   
-- **UniSwap Integration**
-  - [ ] UniswapV3Integration.sol
-  - [ ] Liquidity pool interactions
-  - [ ] Price oracle functionality
-  - [ ] Slippage protection
+- **AMM Features (Off-chain in Validator)**
+  - [x] Liquidity pool management (Validator/src/services/dex/amm/)
+  - [x] Price calculations (SwapCalculator.ts)
+  - [x] Slippage protection (implemented)
+  - Note: No on-chain UniSwap integration contracts needed
   
 - **Security Tests**
   - [ ] Reentrancy protection
