@@ -7,7 +7,7 @@
  * @module services/ContractService
  */
 
-import { ethers } from 'ethers';
+import { ethers, Network } from 'ethers';
 import { logger } from '../utils/logger';
 import * as OmniCoreABI from '../../../Coin/artifacts/contracts/OmniCore.sol/OmniCore.json';
 
@@ -139,9 +139,15 @@ export class ContractService {
       confirmations: 1,
       ...config
     };
-    
-    // Initialize provider
-    this.provider = new ethers.JsonRpcProvider(config.providerUrl);
+
+    // Initialize provider with static network to prevent retry loops
+    const staticNetwork = Network.from({
+      chainId: 43114, // Avalanche C-Chain (default)
+      name: 'avalanche'
+    });
+    this.provider = new ethers.JsonRpcProvider(config.providerUrl, staticNetwork, {
+      staticNetwork: staticNetwork
+    });
     
     // Initialize signer if private key provided
     if (config.privateKey !== undefined && config.privateKey !== null && config.privateKey.length > 0) {

@@ -37,7 +37,7 @@ import { HybridDEXStorage } from '../../storage/HybridDEXStorage';
 import { getStorageConfig } from '../../config/storage.config';
 import { PrivacyDEXService } from '../../services/PrivacyDEXService';
 import { ContractService, SettlementData } from '../../services/ContractService';
-import { ethers } from 'ethers';
+import { ethers, Network } from 'ethers';
 
 /**
  * Perpetual futures contract configuration
@@ -1391,10 +1391,17 @@ export class DecentralizedOrderBook extends EventEmitter {
   private initializePrivacyService(): void {
     try {
       // Check if we have a provider (would come from config in production)
+      // Use static network to prevent retry loops when RPC is unavailable
+      const cotiStaticNetwork = Network.from({
+        chainId: 7082400, // COTI chain ID
+        name: 'coti'
+      });
       const provider = new ethers.JsonRpcProvider(
-        (process.env.COTI_RPC_URL !== null && process.env.COTI_RPC_URL !== undefined && process.env.COTI_RPC_URL !== '') ? process.env.COTI_RPC_URL : 'https://devnet.coti.io'
+        (process.env.COTI_RPC_URL !== null && process.env.COTI_RPC_URL !== undefined && process.env.COTI_RPC_URL !== '') ? process.env.COTI_RPC_URL : 'https://devnet.coti.io',
+        cotiStaticNetwork,
+        { staticNetwork: cotiStaticNetwork }
       );
-      
+
       this.privacyService = new PrivacyDEXService(
         {
           privacyEnabled: true,
