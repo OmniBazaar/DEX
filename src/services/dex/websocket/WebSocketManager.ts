@@ -15,21 +15,31 @@ export type MessageType = 'ticker' | 'orderbook' | 'trades' | 'orders' | 'balanc
 /**
  * WebSocket subscription callback
  */
-export type SubscriptionCallback<T = any> = (data: T) => void;
+export type SubscriptionCallback<T = unknown> = (data: T) => void;
 
 /**
  * Ticker update data
  */
 export interface TickerUpdate {
+  /** Trading pair identifier */
   pair: string;
+  /** Last trade price */
   lastPrice: string;
+  /** Best bid price */
   bidPrice: string;
+  /** Best ask price */
   askPrice: string;
+  /** 24-hour volume */
   volume24h: string;
+  /** 24-hour high */
   high24h: string;
+  /** 24-hour low */
   low24h: string;
+  /** 24-hour price change */
   change24h: string;
+  /** 24-hour percentage change */
   changePercent24h: string;
+  /** Timestamp of the update */
   timestamp: string;
 }
 
@@ -37,10 +47,15 @@ export interface TickerUpdate {
  * Order book update data
  */
 export interface OrderBookUpdate {
+  /** Trading pair identifier */
   pair: string;
+  /** Bid orders */
   bids: Array<{ price: string; amount: string }>;
+  /** Ask orders */
   asks: Array<{ price: string; amount: string }>;
+  /** Sequence number for ordering */
   sequence: number;
+  /** Update type */
   type: 'snapshot' | 'update';
 }
 
@@ -48,11 +63,17 @@ export interface OrderBookUpdate {
  * Trade data
  */
 export interface Trade {
+  /** Trade identifier */
   id: string;
+  /** Trading pair */
   pair: string;
+  /** Execution price */
   price: string;
+  /** Trade amount */
   amount: string;
+  /** Trade side */
   side: 'buy' | 'sell';
+  /** Timestamp of the trade */
   timestamp: string;
 }
 
@@ -60,10 +81,15 @@ export interface Trade {
  * Order update data
  */
 export interface OrderUpdate {
+  /** Order identifier */
   id: string;
+  /** Order status */
   status: string;
+  /** Filled amount */
   filled: string;
+  /** Remaining amount */
   remaining: string;
+  /** Timestamp of update */
   timestamp: string;
 }
 
@@ -71,9 +97,13 @@ export interface OrderUpdate {
  * Balance update data
  */
 export interface BalanceUpdate {
+  /** Currency symbol */
   currency: string;
+  /** Available balance */
   available: string;
+  /** Locked balance */
   locked: string;
+  /** Total balance */
   total: string;
 }
 
@@ -92,9 +122,14 @@ export class WebSocketManager extends EventEmitter {
   private isReconnecting = false;
   private reconnectEnabled = true;
 
+  /**
+   * Creates a new WebSocket manager instance
+   * @param url - Optional WebSocket URL
+   */
   constructor(url?: string) {
     super();
-    this.url = url || process.env.DEX_WS_URL || 'ws://localhost:3001/ws';
+    const envUrl = process.env['DEX_WS_URL'];
+    this.url = url !== undefined && url !== '' ? url : (envUrl !== undefined && envUrl !== '' ? envUrl : 'ws://localhost:3001/ws');
   }
 
   /**
@@ -107,8 +142,8 @@ export class WebSocketManager extends EventEmitter {
     return new Promise((resolve, reject) => {
       try {
         const headers: Record<string, string> = {};
-        if (authToken) {
-          headers.Authorization = `Bearer ${authToken}`;
+        if (authToken !== undefined && authToken !== '') {
+          headers['Authorization'] = `Bearer ${authToken}`;
         }
 
         this.ws = new WebSocket(this.url, { headers });
@@ -116,7 +151,7 @@ export class WebSocketManager extends EventEmitter {
         // Track if we've resolved/rejected to avoid double handling
         let handled = false;
 
-        const cleanup = () => {
+        const cleanup = (): void => {
           // Remove all listeners to prevent memory leaks
           this.ws?.removeAllListeners();
         };
@@ -136,12 +171,12 @@ export class WebSocketManager extends EventEmitter {
           resolve();
         });
 
-        this.ws.on('message', (data) => {
+        this.ws.on('message', (data: Buffer | string) => {
           try {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(data.toString()) as Record<string, unknown>;
             this.handleMessage(message);
-          } catch (error) {
-            console.error('Failed to parse WebSocket message:', error);
+          } catch (_error: unknown) {
+            // Failed to parse WebSocket message - ignore malformed messages
           }
         });
 
@@ -190,7 +225,7 @@ export class WebSocketManager extends EventEmitter {
     this.isReconnecting = false;
     this.stopPing();
 
-    if (this.ws) {
+    if (this.ws !== undefined) {
       this.ws.close();
       this.ws = undefined;
     }
@@ -201,6 +236,7 @@ export class WebSocketManager extends EventEmitter {
 
   /**
    * Check if connected
+   * @returns True if WebSocket is connected
    */
   get isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
@@ -314,8 +350,8 @@ export class WebSocketManager extends EventEmitter {
    * Send message to server
    * @param message - Message to send
    */
-  private send(message: any): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+  private send(message: Record<string, unknown>): void {
+    if (this.ws !== undefined && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     }
   }
@@ -324,19 +360,21 @@ export class WebSocketManager extends EventEmitter {
    * Handle incoming message
    * @param message - Received message
    */
-  private handleMessage(message: any): void {
-    const { channel, data } = message;
+  private handleMessage(message: Record<string, unknown>): void {
+    const channel = message['channel'] as string | undefined;
+    const data = message['data'];
+    const type = message['type'] as string | undefined;
 
-    if (channel) {
+    if (channel !== undefined) {
       const callbacks = this.subscriptions.get(channel);
-      if (callbacks) {
+      if (callbacks !== undefined) {
         callbacks.forEach(callback => callback(data));
       }
     }
 
     // Also emit typed events
-    if (message.type) {
-      this.emit(message.type, data);
+    if (type !== undefined) {
+      this.emit(type, data);
     }
   }
 
@@ -349,7 +387,10 @@ export class WebSocketManager extends EventEmitter {
     if (!this.subscriptions.has(channel)) {
       this.subscriptions.set(channel, new Set());
     }
-    this.subscriptions.get(channel)!.add(callback);
+    const callbacks = this.subscriptions.get(channel);
+    if (callbacks !== undefined) {
+      callbacks.add(callback);
+    }
   }
 
   /**
@@ -371,7 +412,7 @@ export class WebSocketManager extends EventEmitter {
    */
   private startPing(): void {
     this.pingInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.ws !== undefined && this.ws.readyState === WebSocket.OPEN) {
         this.ws.ping();
       }
     }, 30000);
@@ -381,7 +422,7 @@ export class WebSocketManager extends EventEmitter {
    * Stop ping interval
    */
   private stopPing(): void {
-    if (this.pingInterval) {
+    if (this.pingInterval !== undefined) {
       clearInterval(this.pingInterval);
       this.pingInterval = undefined;
     }
@@ -390,7 +431,7 @@ export class WebSocketManager extends EventEmitter {
   /**
    * Reconnect to WebSocket server
    */
-  private async reconnect(): Promise<void> {
+  private reconnect(): void {
     if (this.isReconnecting || this.reconnectAttempts >= this.maxReconnectAttempts) {
       return;
     }
@@ -400,14 +441,16 @@ export class WebSocketManager extends EventEmitter {
 
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
-    setTimeout(async () => {
-      try {
-        await this.connect(this.authToken);
-      } catch (error) {
-        console.error('Reconnection failed:', error);
-        this.isReconnecting = false;
-        this.reconnect();
-      }
+    setTimeout(() => {
+      this.connect(this.authToken)
+        .then(() => {
+          // Reconnection successful
+        })
+        .catch((_error: unknown) => {
+          // Reconnection failed, try again
+          this.isReconnecting = false;
+          void this.reconnect();
+        });
     }, delay);
   }
 }

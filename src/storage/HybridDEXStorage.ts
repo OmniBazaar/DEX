@@ -642,10 +642,10 @@ export class HybridDEXStorage extends EventEmitter {
   /**
    * Get order book from in-memory storage
    * @param pair - Trading pair symbol
-   * @param depth - Maximum number of order book levels to return
-   * @returns Promise resolving to the order book data from memory
+   * @param _depth - Maximum number of order book levels to return
+   * @returns Order book data from memory
    */
-  private async getOrderBookFromMemory(pair: string, depth: number): Promise<OrderBook> {
+  private getOrderBookFromMemory(pair: string, _depth: number): OrderBook {
     // Build order book from activeOrders map
     const bidLevels = new Map<string, { quantity: bigint; count: number }>();
     const askLevels = new Map<string, { quantity: bigint; count: number }>();
@@ -660,7 +660,7 @@ export class HybridDEXStorage extends EventEmitter {
 
       if (order.side === 'BUY') {
         const existing = bidLevels.get(priceKey);
-        if (existing) {
+        if (existing !== undefined) {
           existing.quantity += BigInt(Math.floor(remainingQty));
           existing.count++;
         } else {
@@ -671,7 +671,7 @@ export class HybridDEXStorage extends EventEmitter {
         }
       } else if (order.side === 'SELL') {
         const existing = askLevels.get(priceKey);
-        if (existing) {
+        if (existing !== undefined) {
           existing.quantity += BigInt(Math.floor(remainingQty));
           existing.count++;
         } else {
@@ -691,7 +691,7 @@ export class HybridDEXStorage extends EventEmitter {
         orders: level.count
       }))
       .sort((a, b) => parseFloat(b.price) - parseFloat(a.price))
-      .slice(0, depth);
+      .slice(0, _depth);
 
     const asks = Array.from(askLevels.entries())
       .map(([price, level]) => ({
@@ -700,7 +700,7 @@ export class HybridDEXStorage extends EventEmitter {
         orders: level.count
       }))
       .sort((a, b) => parseFloat(a.price) - parseFloat(b.price))
-      .slice(0, depth);
+      .slice(0, _depth);
 
     const orderBook: OrderBook = {
       pair,

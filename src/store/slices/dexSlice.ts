@@ -11,52 +11,79 @@ import { dexClient, TradingPair, Balance, Order, OrderBook } from '../../service
  * Market data for a trading pair
  */
 export interface MarketData {
+  /** Current price */
   price: string;
+  /** 24-hour price change */
   change24h: string;
+  /** 24-hour percentage change */
   changePercent24h: string;
+  /** 24-hour trading volume */
   volume24h: string;
+  /** 24-hour high price */
   high24h: string;
+  /** 24-hour low price */
   low24h: string;
+  /** Timestamp of the data */
   timestamp: string;
+}
+
+/**
+ * Loading state flags for various operations
+ */
+interface LoadingStates {
+  /** Loading trading pairs */
+  fetchTradingPairs: boolean;
+  /** Loading balances */
+  fetchBalances: boolean;
+  /** Loading orders */
+  fetchOrders: boolean;
+  /** Loading order book */
+  fetchOrderBook: boolean;
+  /** Placing order */
+  placeOrder: boolean;
+  /** Cancelling order */
+  cancelOrder: boolean;
+}
+
+/**
+ * Error states for various operations
+ */
+interface ErrorStates {
+  /** Error fetching trading pairs */
+  fetchTradingPairs?: string;
+  /** Error fetching balances */
+  fetchBalances?: string;
+  /** Error fetching orders */
+  fetchOrders?: string;
+  /** Error fetching order book */
+  fetchOrderBook?: string;
+  /** Error placing order */
+  placeOrder?: string;
+  /** Error cancelling order */
+  cancelOrder?: string;
 }
 
 /**
  * DEX state interface
  */
 export interface DexState {
-  // Trading pairs
+  /** Available trading pairs */
   tradingPairs: TradingPair[];
+  /** Currently selected trading pair */
   selectedPair: string | null;
-
-  // User data
+  /** User balances by currency */
   balances: Record<string, Balance>;
+  /** User orders */
   orders: Order[];
-
-  // Market data
+  /** Order books by pair */
   orderBooks: Record<string, OrderBook>;
+  /** Market data by pair */
   marketData: Record<string, MarketData>;
-
-  // Loading states
-  isLoading: {
-    fetchTradingPairs: boolean;
-    fetchBalances: boolean;
-    fetchOrders: boolean;
-    fetchOrderBook: boolean;
-    placeOrder: boolean;
-    cancelOrder: boolean;
-  };
-
-  // Error states
-  errors: {
-    fetchTradingPairs?: string;
-    fetchBalances?: string;
-    fetchOrders?: string;
-    fetchOrderBook?: string;
-    placeOrder?: string;
-    cancelOrder?: string;
-  };
-
-  // WebSocket connection state
+  /** Loading states */
+  isLoading: LoadingStates;
+  /** Error states */
+  errors: ErrorStates;
+  /** WebSocket connection state */
   websocketConnected: boolean;
 }
 
@@ -212,7 +239,7 @@ const dexSlice = createSlice({
       })
       .addCase(fetchTradingPairs.rejected, (state, action) => {
         state.isLoading.fetchTradingPairs = false;
-        state.errors.fetchTradingPairs = action.error.message || 'Failed to fetch trading pairs';
+        state.errors.fetchTradingPairs = action.error.message !== undefined && action.error.message !== '' ? action.error.message : 'Failed to fetch trading pairs';
       });
 
     // Fetch balances
@@ -230,7 +257,7 @@ const dexSlice = createSlice({
       })
       .addCase(fetchBalances.rejected, (state, action) => {
         state.isLoading.fetchBalances = false;
-        state.errors.fetchBalances = action.error.message || 'Failed to fetch balances';
+        state.errors.fetchBalances = action.error.message !== undefined && action.error.message !== '' ? action.error.message : 'Failed to fetch balances';
       });
 
     // Fetch orders
@@ -245,7 +272,7 @@ const dexSlice = createSlice({
       })
       .addCase(fetchOrders.rejected, (state, action) => {
         state.isLoading.fetchOrders = false;
-        state.errors.fetchOrders = action.error.message || 'Failed to fetch orders';
+        state.errors.fetchOrders = action.error.message !== undefined && action.error.message !== '' ? action.error.message : 'Failed to fetch orders';
       });
 
     // Fetch order book
@@ -260,7 +287,7 @@ const dexSlice = createSlice({
       })
       .addCase(fetchOrderBook.rejected, (state, action) => {
         state.isLoading.fetchOrderBook = false;
-        state.errors.fetchOrderBook = action.error.message || 'Failed to fetch order book';
+        state.errors.fetchOrderBook = action.error.message !== undefined && action.error.message !== '' ? action.error.message : 'Failed to fetch order book';
       });
 
     // Place order
@@ -275,7 +302,7 @@ const dexSlice = createSlice({
       })
       .addCase(placeOrder.rejected, (state, action) => {
         state.isLoading.placeOrder = false;
-        state.errors.placeOrder = action.error.message || 'Failed to place order';
+        state.errors.placeOrder = action.error.message !== undefined && action.error.message !== '' ? action.error.message : 'Failed to place order';
       });
 
     // Cancel order
@@ -290,7 +317,7 @@ const dexSlice = createSlice({
       })
       .addCase(cancelOrder.rejected, (state, action) => {
         state.isLoading.cancelOrder = false;
-        state.errors.cancelOrder = action.error.message || 'Failed to cancel order';
+        state.errors.cancelOrder = action.error.message !== undefined && action.error.message !== '' ? action.error.message : 'Failed to cancel order';
       });
   },
 });

@@ -641,13 +641,13 @@ export class PerpetualEngine extends EventEmitter {
     const markPrice = this.getMarkPrice(market);
     if (markPrice > 0n && price > 0n) {
       const fundingRate = this.fundingRates.get(market);
-      if (fundingRate) {
+      if (fundingRate !== undefined) {
         // Calculate funding rate based on mark vs index price
         const premium = (markPrice - price) * BigInt(1e18) / price;
 
         // Get market info for max funding rate
         const marketInfo = this.markets.get(market);
-        if (marketInfo) {
+        if (marketInfo !== undefined) {
           // Clamp funding rate to maximum (8-hour rate from 24-hour premium)
           let fundingRateValue = premium / BigInt(24);
           if (fundingRateValue > marketInfo.maxFundingRate) {
@@ -739,17 +739,16 @@ export class PerpetualEngine extends EventEmitter {
   }
 
   /**
-   * Process funding payments for all markets
-   * @remarks This is normally called automatically based on funding intervals
-   * @public For testing purposes
+   * Process funding payments for all markets.
+   * This is normally called automatically based on funding intervals.
+   * Exposed as public for testing purposes.
    */
-  async processFundingPayments(): Promise<void> {
+  processFundingPayments(): void {
     const now = Date.now();
-
     // For testing, force immediate funding processing
     for (const [marketSymbol, fundingRate] of this.fundingRates) {
       const market = this.markets.get(marketSymbol);
-      if (!market) continue;
+      if (market === undefined) continue;
 
       // Use existing funding rate if set, otherwise keep at 0
       if (fundingRate.rate === 0n) continue;

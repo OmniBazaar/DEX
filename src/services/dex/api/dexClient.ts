@@ -195,9 +195,18 @@ class DEXClient {
   private client: AxiosInstance;
   private authToken?: string;
 
+  /**
+   * Creates a new DEX client instance
+   * @param baseURL - Optional base URL for the DEX API
+   */
   constructor(baseURL?: string) {
+    const envUrl = process.env['DEX_API_URL'];
+    const resolvedUrl = baseURL !== undefined && baseURL !== ''
+      ? baseURL
+      : (envUrl !== undefined && envUrl !== '' ? envUrl : 'http://localhost:3001/api/dex');
+
     this.client = axios.create({
-      baseURL: baseURL || process.env.DEX_API_URL || 'http://localhost:3001/api/dex',
+      baseURL: resolvedUrl,
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -206,8 +215,8 @@ class DEXClient {
 
     // Add request interceptor for auth
     this.client.interceptors.request.use((config) => {
-      if (this.authToken) {
-        config.headers.Authorization = `Bearer ${this.authToken}`;
+      if (this.authToken !== undefined && this.authToken !== '') {
+        config.headers['Authorization'] = `Bearer ${this.authToken}`;
       }
       return config;
     });
@@ -273,7 +282,7 @@ class DEXClient {
    * @returns Array of open orders
    */
   async getOpenOrders(pair?: string): Promise<Order[]> {
-    const params = pair ? { pair } : undefined;
+    const params = pair !== undefined && pair !== '' ? { pair } : undefined;
     const response = await this.client.get<Order[]>('/orders', { params });
     return response.data;
   }
