@@ -34,7 +34,7 @@ dotenv.config();
  */
 class DEXServer {
   private app: express.Application;
-  private server: ReturnType<typeof createServer>;
+  private server: import('http').Server;
   private io: SocketIOServer;
   private wsService: ValidatorWebSocketService;
   private config: {
@@ -101,7 +101,8 @@ class DEXServer {
       standardHeaders: true,
       legacyHeaders: false
     });
-    this.app.use('/api/', limiter);
+    // Type assertion needed due to express-rate-limit type compatibility
+    this.app.use('/api/', limiter as unknown as express.RequestHandler);
 
     // Body parsing
     this.app.use(express.json({ limit: '10mb' }));

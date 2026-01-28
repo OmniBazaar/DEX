@@ -135,7 +135,7 @@ dotenv.config();
  */
 class UnifiedValidatorDEX {
   private app: express.Application;
-  private server: ReturnType<typeof createServer>;
+  private server: import('http').Server;
   private io: SocketIOServer;
   private config: ValidatorConfig;
   
@@ -334,7 +334,8 @@ class UnifiedValidatorDEX {
       standardHeaders: true,
       legacyHeaders: false
     });
-    this.app.use('/api/', limiter);
+    // Type assertion needed due to express-rate-limit type compatibility
+    this.app.use('/api/', limiter as unknown as express.RequestHandler);
 
     // Body parsing
     this.app.use(express.json({ limit: '10mb' }));

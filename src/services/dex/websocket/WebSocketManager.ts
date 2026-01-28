@@ -383,13 +383,14 @@ export class WebSocketManager extends EventEmitter {
    * @param channel - Channel name
    * @param callback - Callback function
    */
-  private subscribe(channel: string, callback: SubscriptionCallback): void {
+  private subscribe<T>(channel: string, callback: SubscriptionCallback<T>): void {
     if (!this.subscriptions.has(channel)) {
       this.subscriptions.set(channel, new Set());
     }
     const callbacks = this.subscriptions.get(channel);
     if (callbacks !== undefined) {
-      callbacks.add(callback);
+      // Cast is safe because we control how callbacks are added and invoked
+      callbacks.add(callback as SubscriptionCallback<unknown>);
     }
   }
 

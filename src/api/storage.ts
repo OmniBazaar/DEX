@@ -130,8 +130,10 @@ export function createStorageRoutes(storage: IPFSStorageNetwork): Router {
    * Upload file to IPFS
    * POST /api/v1/storage/upload
    */
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   router.post('/upload',
-    upload.single('file'),
+    // Type assertion needed due to express v4/v5 type incompatibility in multer
+    upload.single('file') as unknown as (req: Request, res: Response, next: () => void) => void,
     (req: Request, res: Response): void => {
       Promise.resolve().then(async () => {
         try {
