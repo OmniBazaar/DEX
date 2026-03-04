@@ -6,6 +6,7 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import * as path from 'path';
 import { Logger } from '../../src/utils/logger';
 import axios from 'axios';
 
@@ -31,7 +32,7 @@ export interface ValidatorTestServerConfig {
 const DEFAULT_CONFIG: ValidatorTestServerConfig = {
   port: 3001,
   wsPath: '/ws',
-  validatorPath: '/home/rickc/OmniBazaar/Validator',
+  validatorPath: path.resolve(__dirname, '../../../Validator'),
   startupTimeout: 30000 // 30 seconds
 };
 

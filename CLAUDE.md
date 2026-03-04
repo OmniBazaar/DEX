@@ -2,7 +2,7 @@
 
 **Purpose:** Comprehensive context for AI assistants working on the DEX module
 **Last Updated:** 2025-10-05 11:04 UTC
-**Location:** `/home/rickc/OmniBazaar/DEX/`
+**Location:** `~/OmniBazaar/DEX/`
 
 ---
 
@@ -102,7 +102,7 @@ src/
 
 **Contracts:** `contracts/DEXSettlement.sol` (in Coin module)
 **Reference:** `dydx-reference/` - dYdX v4 reference code
-**Reference:** `/home/rickc/OmniBazaar/DEX/uniswap-reference` - UniSwap refernce code
+**Reference:** `~/OmniBazaar/DEX/uniswap-reference` - UniSwap refernce code
 **Tests:** `tests/` (Jest)
 
 ---
@@ -151,7 +151,7 @@ src/
 ### Quick Start
 
 ```bash
-cd /home/rickc/OmniBazaar/DEX
+cd ~/OmniBazaar/DEX
 
 # Install
 npm install
@@ -172,7 +172,7 @@ npm test
 
 ```bash
 # Most DEX development happens here:
-cd /home/rickc/OmniBazaar/Validator
+cd ~/OmniBazaar/Validator
 
 # DEX services location:
 # src/services/dex/DecentralizedOrderBook.ts
@@ -187,7 +187,7 @@ cd /home/rickc/OmniBazaar/Validator
 npm test
 
 # Validator DEX tests
-cd /home/rickc/OmniBazaar/Validator
+cd ~/OmniBazaar/Validator
 npm test -- DecentralizedOrderBook
 npm test -- AMM
 ```
@@ -198,7 +198,7 @@ npm test -- AMM
 
 ### Validator Module (PRIMARY)
 
-**Location:** `/home/rickc/OmniBazaar/Validator/`
+**Location:** `~/OmniBazaar/Validator/`
 
 **DEX Services in Validator:**
 - `src/services/dex/DecentralizedOrderBook.ts` - Main engine
@@ -213,7 +213,7 @@ npm test -- AMM
 
 ### WebApp Module
 
-**Location:** `/home/rickc/OmniBazaar/WebApp/`
+**Location:** `~/OmniBazaar/WebApp/`
 
 **DEX UI:**
 - `src/pages/dex/TradingPage.tsx` - Trading interface
@@ -225,7 +225,7 @@ npm test -- AMM
 
 ### Coin Module
 
-**Location:** `/home/rickc/OmniBazaar/Coin/`
+**Location:** `~/OmniBazaar/Coin/`
 
 **Smart Contracts:**
 - OmniCore.sol - Settlement functions
@@ -240,7 +240,7 @@ npm test -- AMM
 
 ### dYdX v4
 
-**Location:** `/home/rickc/OmniBazaar/DEX/dydx-reference/`
+**Location:** `~/OmniBazaar/DEX/dydx-reference/`
 
 **Use for:**
 - Advanced order types
@@ -319,7 +319,7 @@ npm test -- AMM
 **Work in Validator module:**
 
 ```bash
-cd /home/rickc/OmniBazaar/Validator
+cd ~/OmniBazaar/Validator
 
 # 1. Add order type to DecentralizedOrderBook.ts
 # Edit: src/services/dex/DecentralizedOrderBook.ts
@@ -339,7 +339,7 @@ touch tests/services/dex/NewOrderType.test.ts
 **Work in Validator module:**
 
 ```bash
-cd /home/rickc/OmniBazaar/Validator
+cd ~/OmniBazaar/Validator
 
 # 1. Implement in AMM services
 # Edit: src/services/dex/amm/LiquidityPoolManager.ts
@@ -356,7 +356,7 @@ touch tests/services/dex/amm/NewFeature.test.ts
 **Work in Coin module:**
 
 ```bash
-cd /home/rickc/OmniBazaar/Coin
+cd ~/OmniBazaar/Coin
 
 # Edit: contracts/OmniCore.sol or contracts/DEXSettlement.sol
 # Run: npx hardhat compile
@@ -396,12 +396,12 @@ const display = fromWei(result); // "100.5"
 
 ## QUICK REFERENCE
 
-**Project Root:** `/home/rickc/OmniBazaar/`
-**This Module:** `/home/rickc/OmniBazaar/DEX/`
-**Main Implementation:** `/home/rickc/OmniBazaar/Validator/src/services/dex/`
-**Contracts:** `/home/rickc/OmniBazaar/Coin/contracts/`
-**UI:** `/home/rickc/OmniBazaar/WebApp/src/pages/dex/`
-**Reference Code:** `/home/rickc/OmniBazaar/DEX/dydx-reference/`
+**Project Root:** `~/OmniBazaar/`
+**This Module:** `~/OmniBazaar/DEX/`
+**Main Implementation:** `~/OmniBazaar/Validator/src/services/dex/`
+**Contracts:** `~/OmniBazaar/Coin/contracts/`
+**UI:** `~/OmniBazaar/WebApp/src/pages/dex/`
+**Reference Code:** `~/OmniBazaar/DEX/dydx-reference/`
 
 **Dev Commands:**
 - Build: `npm run build`

@@ -9,7 +9,7 @@
 
 Integration plans for enhancing OmniBazaar DEX with features from dYdX v4, Uniswap V3, and multi-DEX aggregation.
 
-**Reference Code:** `/home/rickc/OmniBazaar/DEX/dydx-reference/`
+**Reference Code:** `~/OmniBazaar/DEX/dydx-reference/`
 
 ---
 

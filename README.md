@@ -274,7 +274,7 @@ cd omnibazaar
 # Install all dependencies from the root directory
 npm install --legacy-peer-deps
 
-# Note: Dependencies are now managed at the root level in /home/rickc/OmniBazaar/node_modules
+# Note: Dependencies are now managed at the root level in ~/OmniBazaar/node_modules
 # This includes all DEX dependencies (express, ethers, web3, socket.io, etc.)
 
 # Navigate to DEX module
@@ -471,7 +471,7 @@ The DEX module is fully integrated with the test suite at the project root:
 
 ```bash
 # Run all integration tests including DEX
-cd /home/rickc/OmniBazaar
+cd ~/OmniBazaar
 npm run test:integration
 
 # Run only DEX tests
@@ -481,7 +481,7 @@ npx jest tests/integration/features/dex
 npx jest tests/integration/features/dex/dex-trading.test.ts
 ```
 
-For more details, see the [Integration Test Documentation](/home/rickc/OmniBazaar/tests/integration/README.md)
+For more details, see the [Integration Test Documentation](~/OmniBazaar/tests/integration/README.md)
 
 ### Building
 
