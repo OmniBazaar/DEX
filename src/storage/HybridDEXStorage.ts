@@ -16,7 +16,7 @@ import { UnifiedOrder, OrderBook } from '../types/config';
 import { logger } from '../utils/logger';
 import { toWei, fromWei } from '../constants/precision';
 
-// IPFS types - will be loaded dynamically due to ESM module
+/** Minimal IPFS client interface for cold storage tier */
 interface IPFSHTTPClient {
   add: (data: string | Buffer) => Promise<{ cid: { toString: () => string } }>;
   get: (cid: string) => AsyncIterable<Uint8Array>;
@@ -254,18 +254,39 @@ export class HybridDEXStorage extends EventEmitter {
    */
   private async initializeIPFS(): Promise<void> {
     try {
-      // Dynamic import for ESM module
-      const { create: createIPFS } = await import('ipfs-http-client');
-      
-      this.ipfs = createIPFS({
-        host: this.config.ipfs.host,
-        port: this.config.ipfs.port,
-        protocol: this.config.ipfs.protocol
-      }) as unknown as IPFSHTTPClient;
+      const baseUrl = `${this.config.ipfs.protocol}://${this.config.ipfs.host}:${this.config.ipfs.port}/api/v0`;
 
-      // Test connection
+      // Build a lightweight client using direct fetch to Kubo HTTP API
+      this.ipfs = {
+        add: async (data: string | Buffer): Promise<{ cid: { toString: () => string } }> => {
+          const formData = new FormData();
+          const buf = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
+          formData.append('file', new Blob([new Uint8Array(buf)]));
+          const resp = await fetch(`${baseUrl}/add?pin=true&cid-version=1`, { method: 'POST', body: formData });
+          if (!resp.ok) throw new Error(`IPFS add failed: ${resp.status}`);
+          const result = await resp.json() as { Hash: string };
+          return { cid: { toString: () => result.Hash } };
+        },
+        get: async function* (cid: string): AsyncIterable<Uint8Array> {
+          const resp = await fetch(`${baseUrl}/cat?arg=${encodeURIComponent(cid)}`, { method: 'POST' });
+          if (!resp.ok) throw new Error(`IPFS cat failed: ${resp.status}`);
+          const buf = await resp.arrayBuffer();
+          yield new Uint8Array(buf);
+        },
+        pin: {
+          add: async (cid: string): Promise<void> => { await fetch(`${baseUrl}/pin/add?arg=${encodeURIComponent(cid)}`, { method: 'POST' }); },
+          rm: async (cid: string): Promise<void> => { await fetch(`${baseUrl}/pin/rm?arg=${encodeURIComponent(cid)}`, { method: 'POST' }); }
+        },
+        version: async (): Promise<{ version: string }> => {
+          const resp = await fetch(`${baseUrl}/version`, { method: 'POST' });
+          if (!resp.ok) throw new Error(`IPFS version failed: ${resp.status}`);
+          const data = await resp.json() as { Version: string };
+          return { version: data.Version };
+        }
+      };
+
       const version = await this.ipfs.version();
-      logger.info(`✅ IPFS connected (version: ${version.version})`);
+      logger.info(`IPFS connected via Kubo HTTP API (version: ${version.version})`);
     } catch (error) {
       // If IPFS client fails to load, log warning but continue
       logger.warn('Failed to initialize IPFS client:', error);
